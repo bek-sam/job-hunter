@@ -113,6 +113,11 @@ def apply_status_updates(rows, updates, dry=False):
         if not r:
             skipped.append(f"{u.get('company')}: no matching row"); continue
         st = u.get('status')
+        if amb and st:   # Oct 14: a Figma intern rejection was written to the Full Stack row -> never guess a Status
+            note_amb = f"CHECK: email says {st} for '{u.get('position_hint', '')}' but it matches several {u.get('company')} rows"
+            if not dry: notion.update_row(r['id'], notion.props(Notes=(note_amb + ' | ' + (r.get('Notes') or ''))[:1990]))
+            skipped.append(f"{u.get('company')} – {u.get('position_hint', '')}: {st} NOT applied (several matching rows; check by hand)")
+            continue
         # never move a row backwards in the funnel (e.g. a late "thanks for applying" after an OA invite)
         if st in rank and r.get('Status') in rank and rank[st] < rank[r['Status']] and st != 'Needs you':
             st = None
