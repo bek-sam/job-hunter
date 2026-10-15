@@ -25,7 +25,14 @@ ROLE25 = re.compile(r'data engineer|cloud|platform|devops|\bsre\b|site reliabili
 ROLE10 = re.compile(r'\bqa\b|quality|test|sdet|embedded|firmware|it |programmer analyst|systems analyst', re.I)
 ENTRY = re.compile(r'new grad|new college|entry|early career|university|graduate|campus|\b2027\b|\bassociate\b|engineer i\b|\bi\b$|\b(engineer|developer) 1\b|junior|jr\.?\b|intern|co-?op', re.I)
 NON_SWE = re.compile(r'analyst|analytics|pricing|business|sales|marketing|finance|accounting|operations|recruit|\bhr\b|designer|product manager|consultant', re.I)
-TXREMOTE = re.compile(P.get('identity', 'preferred_locations_rx') or r'remote', re.I)   # +5 fit points for these locations
+TXREMOTE = re.compile(P.get('identity', 'preferred_locations_rx') or r'remote', re.I)   # your preferred locations
+# Location only counts when the JD restricts WHERE you must be (Oct 14 2026, owner): on-site only, local candidates
+# only, must live/be located in..., no remote. Otherwise every location gets full points.
+LOC_RESTRICTED = re.compile(r'must (be |currently )?(live|living|reside|residing|located|based)\b|(local|in-?state) candidates( only)?|'
+                            r'candidates (must|should) (be )?(located|based|living|residing)|only (consider|accept)\w* (candidates|applicants) (located|based|living|who live)|'
+                            r'(100%|fully|strictly) (on-?site|in[- ]office|in[- ]person)|on-?site (only|required|is required)|'
+                            r'no remote|not (eligible|open|available) (for|to) remote|remote (work )?(is )?not (an option|available|offered)|'
+                            r'no relocation|relocation (assistance )?(is )?not (provided|offered|available)|within commuting distance', re.I)
 GOOD_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'workday', 'amazon', 'google', 'apple', 'microsoft', 'ibm',
             'goldman', 'tiktok', 'eightfold', 'oracle', 'simplify', 'simplify-intern'}
 
@@ -107,7 +114,7 @@ def prescore(role, jd_text):
     src = role.get('source', '')
     co = role.get('company', '')
     employer = 0 if STAFFING.search(co) else 10 if src in GOOD_SRC else 5
-    loc = 5 if TXREMOTE.search(role.get('location', '')) else 3
+    loc = 3 if LOC_RESTRICTED.search(text) and not TXREMOTE.search(role.get('location', '')) else 5
     fit = role_pts + level + skill + employer + loc
     return dict(fit=fit, match=match_pct, evidence=evidence_pct, stretch=stretch, required=req, preferred=pref,
                 missing=[t for t in jd_terms if t not in EVIDENCE], parts=dict(role=role_pts, level=level, skill=skill, employer=employer, loc=loc))

@@ -53,7 +53,7 @@ and commas. Sections:
 
 | Section | What to put there |
 |---|---|
-| `identity` | name, email, phone, links, city/state. `home_area_rx` = words for where you live; `preferred_locations_rx` = locations that score higher |
+| `identity` | name, email, phone, links, city/state. `home_area_rx` = words for where you live; `preferred_locations_rx` = where you want to work (only matters when a job is on-site/local-only) |
 | `answers` | answers to common application questions (start date, degree, EEO self-ID, work authorization…). Lists are `["answer", "option regex"]`: the regex picks the matching dropdown option |
 | `workday_answers` | the same facts for Workday's field ids |
 | `work_history`, `school` | the jobs and school allowed on forms — nothing else is ever entered |
