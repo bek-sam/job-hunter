@@ -56,6 +56,18 @@ scripts/schedule.sh install-awake                                   # keep the M
 
 ## Contributing
 
-Open an issue or PR. Never commit `profile.json`, `.env`, `data/` or anything with real personal details —
+`main` is protected: nobody pushes to it directly. Work on your own branch and open a pull request; the owner
+reviews and merges it.
+
+```bash
+git clone https://github.com/bek-sam/job-hunter.git && cd job-hunter
+git checkout -b yourname/short-description      # one branch per change
+# ...edit, test (test_resumes.py, fast_hunter.py --dry-run)...
+git add <files> && git commit -m "What and why"
+git push -u origin yourname/short-description   # then open a Pull Request on GitHub
+git checkout main && git pull                   # later: stay up to date with merged work
+```
+
+Collaborators can push branches here; everyone else can fork and open a PR from their fork. Never commit `profile.json`, `.env`, `data/` or anything with real personal details —
 run `git status` before every commit. New form rules go in code as `(label regex, profile key)`; the answer goes in
 your own `profile.json` (and a placeholder in `profile.example.json`).
