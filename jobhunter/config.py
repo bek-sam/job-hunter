@@ -47,6 +47,9 @@ LLM_MODEL_CHEAP = os.environ.get('LLM_MODEL_CHEAP', 'haiku')
 
 # Hunting rules (from the owner, Oct 4-9 2026) -- see reference/schedules/Fast_Hunter*.md
 WINDOW_MIN = int(os.environ.get('WINDOW_MIN', '20'))     # runs every 15 min (Oct 13): roles posted in the last 20 min (5 min overlap)
+# max posting age accepted (Oct 14): LinkedIn shows a new posting in search 15-45 min late, so a 20-min cut marked
+# ~85% of real new roles stale forever. 60 min = the original freshness rule; Notion dedupe stops double builds.
+FRESH_MIN = int(os.environ.get('FRESH_MIN', '60'))
 FIT_GATE = int(os.environ.get('FIT_GATE', '70'))
 PER_COMPANY_WEEK = int(os.environ.get('PER_COMPANY_WEEK', '2'))   # max new roles per company per 7 days (Oct 13)
 # 'all' = pass every JD tech term to the generator (same as the cloud Fast Hunter);

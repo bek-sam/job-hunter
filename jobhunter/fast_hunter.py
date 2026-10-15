@@ -95,7 +95,8 @@ def main():
     if not config.NOTION_TOKEN and not a.dry_run:
         print('NOTION_TOKEN is empty in .env -> running as --dry-run (no Notion writes, no LLM calls)')
         a.dry_run = True
-    t0 = dt.datetime.now(dt.timezone.utc); cut = t0 - dt.timedelta(minutes=a.minutes)
+    fresh_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
+    t0 = dt.datetime.now(dt.timezone.utc); cut = t0 - dt.timedelta(minutes=fresh_min)
     stats = dict(candidates=0, stale=0, unverified=0, blocked=0, low_fit=0, dupes=0, built=0, errors=0)
     why_dropped = []
 
@@ -103,11 +104,15 @@ def main():
         out = config.DATA / 'hunt'
         results = [(n, json.load(open(out / f)), 0) for n, f in (('hunt', 'new_roles.json'), ('intern', 'new_interns.json'), ('bigtech', 'new_bigtech.json'))]
     else:
-        results = run_hunters(a.minutes / 60 + 0.1)
+        results = run_hunters(fresh_min / 60 + 0.1)
     per_script = {n: (len(l), rc) for n, l, rc in results}
     rows = merged(results); stats['candidates'] = len(rows)
     con = db(a.dry_run)
-    rows = [r for r in rows if not con.execute('select 1 from seen where url=?', (r['url'],)).fetchone()]
+    retry_cut = (t0 - dt.timedelta(minutes=fresh_min)).isoformat()
+    def unseen(r):   # 'retry' rows (page had no posting time yet) get another look until they are fresh_min old
+        s = con.execute('select verdict, at from seen where url=?', (r['url'],)).fetchone()
+        return s is None or (s[0] == 'retry' and s[1] >= retry_cut)
+    rows = [r for r in rows if unseen(r)]
 
     # 1) freshness: exact timestamp within the window, or proven on the job page
     fresh = []
@@ -118,11 +123,12 @@ def main():
             continue
         j = JD.fetch(r['url'])
         ok = (j.get('exact') and j['posted'] and j['posted'] >= cut) or \
-             (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= a.minutes)
+             (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fresh_min)
         if ok: fresh.append((r, j))
         else:
-            stats['unverified' if not j.get('exact') else 'stale'] += 1
-            con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'stale/unverified', None, t0.isoformat()))
+            known = j.get('exact') or j.get('posted_label')   # we know the age -> too old for good; no age shown -> retry later
+            stats['stale' if known else 'unverified'] += 1
+            con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'stale' if known else 'retry', None, t0.isoformat()))
 
     # 2) dedupe against Notion (last 35 days) -- one paged query per run, no SQL quota
     links = pairs = set(); per_co = collections.Counter()
@@ -146,16 +152,16 @@ def main():
             why = score.blocked(text, r['title'])
             if why:
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: {why}")
-                con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:' + why, None, t0.isoformat()))
+                con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:' + why, None, t0.isoformat()))
                 continue
             if r['kind'] == 'intern' and score.term_too_early(score.intern_term(r['title'], text)):
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: term before 2027")
-                con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:term', None, t0.isoformat()))
+                con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:term', None, t0.isoformat()))
                 continue
             sc = score.prescore(r, text)
             if sc['fit'] < config.FIT_GATE:
                 stats['low_fit'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: fit {sc['fit']}")
-                con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'low', sc['fit'], t0.isoformat()))
+                con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'low', sc['fit'], t0.isoformat()))
                 continue
             built.append(build(r, j, sc, dry=a.dry_run))
             stats['built'] += 1; per_co[key[0]] += 1
