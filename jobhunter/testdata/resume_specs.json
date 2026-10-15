@@ -1,0 +1,175 @@
+[
+ {
+  "id": "fe",
+  "position": "Frontend Software Engineer, New Grad",
+  "required": [
+   "React",
+   "TypeScript",
+   "JavaScript",
+   "HTML/CSS",
+   "REST APIs"
+  ],
+  "preferred": [
+   "Next.js",
+   "Testing",
+   "Accessibility"
+  ],
+  "kind": "newgrad",
+  "location": "Austin, TX"
+ },
+ {
+  "id": "ai",
+  "position": "AI Engineer I",
+  "required": [
+   "Python",
+   "LLM",
+   "RAG",
+   "PyTorch",
+   "AWS"
+  ],
+  "preferred": [
+   "LangChain",
+   "Docker",
+   "Kubernetes"
+  ],
+  "kind": "newgrad",
+  "location": "Remote, US"
+ },
+ {
+  "id": "be",
+  "position": "Backend Software Engineer (Entry Level)",
+  "required": [
+   "Java",
+   "Go",
+   "PostgreSQL",
+   "Microservices",
+   "Kafka"
+  ],
+  "preferred": [
+   "Kubernetes",
+   "Distributed Systems",
+   "gRPC"
+  ],
+  "kind": "newgrad",
+  "location": "Houston, TX"
+ },
+ {
+  "id": "in",
+  "position": "Data Engineering Intern Summer 2027",
+  "required": [
+   "Python",
+   "SQL",
+   "Spark",
+   "ETL"
+  ],
+  "preferred": [
+   "Airflow",
+   "Snowflake",
+   "AWS"
+  ],
+  "kind": "intern",
+  "location": "Seattle, WA"
+ },
+ {
+  "id": "ios",
+  "position": "iOS Engineer, New Grad",
+  "required": [
+   "Swift",
+   "SwiftUI",
+   "iOS",
+   "Xcode"
+  ],
+  "preferred": [
+   "Core Data",
+   "Combine",
+   "REST APIs"
+  ],
+  "kind": "newgrad",
+  "location": "Austin, TX"
+ },
+ {
+  "id": "devops",
+  "position": "DevOps Engineer I",
+  "required": [
+   "Linux",
+   "Docker",
+   "Kubernetes",
+   "Terraform",
+   "AWS"
+  ],
+  "preferred": [
+   "Ansible",
+   "CI/CD",
+   "Python",
+   "RHEL"
+  ],
+  "kind": "newgrad",
+  "location": "Dallas, TX"
+ },
+ {
+  "id": "fs",
+  "position": "Full Stack Software Engineer",
+  "required": [
+   "TypeScript",
+   "React",
+   "Node.js",
+   "PostgreSQL"
+  ],
+  "preferred": [
+   "GraphQL",
+   "AWS",
+   "Docker"
+  ],
+  "kind": "newgrad",
+  "location": "Houston, TX"
+ },
+ {
+  "id": "sdet",
+  "position": "Software Engineer in Test",
+  "required": [
+   "Python",
+   "Selenium",
+   "Playwright",
+   "CI/CD"
+  ],
+  "preferred": [
+   "Java",
+   "API testing"
+  ],
+  "kind": "newgrad",
+  "location": "Remote"
+ },
+ {
+  "id": "mlint",
+  "position": "Machine Learning Engineer Intern",
+  "required": [
+   "Python",
+   "PyTorch",
+   "TensorFlow",
+   "scikit-learn"
+  ],
+  "preferred": [
+   "NLP",
+   "Computer Vision",
+   "AWS"
+  ],
+  "kind": "intern",
+  "location": "Seattle, WA"
+ },
+ {
+  "id": "swe",
+  "position": "Software Engineer",
+  "required": [
+   "Java",
+   "Python",
+   "Data Structures",
+   "Algorithms"
+  ],
+  "preferred": [
+   "Distributed Systems",
+   "AWS"
+  ],
+  "kind": "newgrad",
+  "location": "Austin, TX"
+ }
+]

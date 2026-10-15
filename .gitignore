@@ -1,0 +1,14 @@
+# --- personal data: never commit ---
+.env
+profile.json
+data/
+reference/
+CLAUDE.md
+PLAN.md
+.claude/
+
+# --- local tooling ---
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
