@@ -4,14 +4,8 @@ import applicant as P
 import re
 from gen_v5 import CANON, BASE, PROJ
 
-# Terms he has real evidence for (resume skills + project stacks + Project Library facts)
-EVIDENCE = {x for _, items in BASE for x in items} | {
-    'HTML/CSS', 'HTML', 'CSS', 'Redux', 'Bootstrap', 'Tailwind CSS', 'Supabase', 'Prisma', 'Zod', 'FastAPI', 'Unit Testing',
-    'Integration Testing', 'Test Automation', 'Microservices', 'WebSockets', 'OAuth 2.0', 'Computer Vision', 'NumPy', 'pandas',
-    'Deep Learning', 'Generative AI', 'NLP', 'TensorFlow', 'Model Context Protocol (MCP)', 'LLM Evaluation', 'iOS',
-    'Operating Systems', 'Computer Networks', 'Concurrency', 'SDLC', 'Amazon Web Services (AWS: S3, hosting)', 'Serverless',
-    'Agile/Scrum',
-}
+# Terms you have real evidence for: resume base skills + project stacks + profile.json skills.evidence_extra
+EVIDENCE = {x for _, items in BASE for x in items} | set(P.get('skills', 'evidence_extra', default=[]))
 for _, stack, _, _ in PROJ:
     for t in stack.split(','):
         n = CANON.get(t.strip().lower())
@@ -31,7 +25,7 @@ ROLE25 = re.compile(r'data engineer|cloud|platform|devops|\bsre\b|site reliabili
 ROLE10 = re.compile(r'\bqa\b|quality|test|sdet|embedded|firmware|it |programmer analyst|systems analyst', re.I)
 ENTRY = re.compile(r'new grad|new college|entry|early career|university|graduate|campus|\b2027\b|\bassociate\b|engineer i\b|\bi\b$|\b(engineer|developer) 1\b|junior|jr\.?\b|intern|co-?op', re.I)
 NON_SWE = re.compile(r'analyst|analytics|pricing|business|sales|marketing|finance|accounting|operations|recruit|\bhr\b|designer|product manager|consultant', re.I)
-TXREMOTE = re.compile(r'houston|texas|\btx\b|austin|dallas|remote', re.I)
+TXREMOTE = re.compile(P.get('identity', 'preferred_locations_rx') or r'remote', re.I)   # +5 fit points for these locations
 GOOD_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'workday', 'amazon', 'google', 'apple', 'microsoft', 'ibm',
             'goldman', 'tiktok', 'eightfold', 'oracle', 'simplify', 'simplify-intern'}
 

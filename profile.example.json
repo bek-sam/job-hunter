@@ -15,7 +15,8 @@
   "location": "Springfield, IL",
   "home_area_rx": "springfield|illinois|\\bil\\b",
   "languages_spoken_rx": "english",
-  "workday_self_id_name": "Jane Doe"
+  "workday_self_id_name": "Jane Doe",
+  "preferred_locations_rx": "springfield|illinois|\\bil\\b|remote"
  },
  "answers": {
   "full_name_first_last": "Jane Doe",
@@ -584,5 +585,38 @@
  "resume_rules": {
   "not_deployed_rows": [],
   "deny_rx": ""
- }
+ },
+ "skills": {
+  "base": {
+   "Languages": [
+    "Python",
+    "JavaScript",
+    "SQL"
+   ],
+   "Frameworks & Libraries": [
+    "React",
+    "FastAPI"
+   ],
+   "AI / ML": [],
+   "Databases & Data": [
+    "PostgreSQL"
+   ],
+   "Cloud & DevOps": [
+    "Git",
+    "Docker"
+   ],
+   "Concepts": [
+    "REST APIs"
+   ]
+  },
+  "generic": [],
+  "role_add": {},
+  "role_drop": {},
+  "evidence_extra": [
+   "HTML",
+   "CSS"
+  ],
+  "unproven_max": 0
+ },
+ "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them."
 }

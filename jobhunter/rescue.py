@@ -120,8 +120,12 @@ def _do(frame, page, fields, a):
     loc = frame.locator(f'[data-rx="{a.get("id")}"]').first
     op, val = a['op'], a.get('value') or ''
     if op == 'click':
-        btn_txt = (loc.inner_text() or loc.get_attribute('aria-label') or '') if loc.count() else ''
-        if BLOCK_CLICK.search(btn_txt): return f'refused click "{btn_txt[:30]}"'
+        if not loc.count(): return 'unknown id'
+        btn_txt = ' '.join(x for x in (loc.inner_text(), loc.get_attribute('aria-label'), loc.get_attribute('value'),
+                                       loc.get_attribute('title'), loc.get_attribute('data-automation-id')) if x)
+        # submit-type controls are refused even without text (icon buttons, <input type=submit>)
+        if BLOCK_CLICK.search(btn_txt) or (loc.get_attribute('type') or '').lower() == 'submit' or not btn_txt.strip():
+            return f'refused click "{btn_txt[:30]}"'
         loc.click(timeout=5000); frame.wait_for_timeout(1200); return 'clicked ' + btn_txt[:30]
     if f is None: return 'unknown id'
     lab = f.get('label') or ''

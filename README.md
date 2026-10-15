@@ -17,16 +17,17 @@ Nothing personal is in this repo. Everything about you lives in git-ignored loca
 
 `profile.example.json` and `.env.example` show the structure with placeholder values (a fictional "Jane Doe").
 
-## Setup (macOS)
+## Setup
+
+**New here? Follow [SETUP.md](SETUP.md)** — a step-by-step guide (about 30–45 min). Short version:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/playwright install chromium
-cp profile.example.json profile.json     # then replace every value with your own
-cp .env.example .env                     # Notion token + IDs
-brew install --cask libreoffice          # DOCX -> PDF for resumes (needs the Carlito font)
+git clone https://github.com/bek-sam/job-hunter.git && cd job-hunter
+scripts/setup.sh                                          # installs everything, creates profile.json + .env, checks tools
+.venv/bin/python jobhunter/notion_setup.py "<page link>"  # creates the Notion databases, prints the .env lines
+# edit profile.json with your own details, add resume bullets in Notion, then:
+.venv/bin/python jobhunter/test_resumes.py
 ```
-
-Resume bullets come from your Notion bullet bank (`jobhunter/resume_sync.py`), not from code.
 
 ## Commands
 

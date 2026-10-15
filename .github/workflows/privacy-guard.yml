@@ -1,0 +1,33 @@
+name: privacy-guard
+# Blocks a pull request that adds personal files or secrets. Plain shell, no third-party actions, read-only token.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No personal files
+        run: |
+          bad=$(git ls-files | grep -E '(^|/)(profile\.json|\.env|\.env\.[^e].*)$|^data/|^reference/|(^|/)CLAUDE\.md$|^PLAN\.md$|^\.claude/|\.(pdf|docx|sqlite|db|jsonl)$' || true)
+          if [ -n "$bad" ]; then echo "::error::personal/local files must not be committed:"; echo "$bad"; exit 1; fi
+      - name: No secrets
+        run: |
+          hits=$(git grep -nIE 'ntn_[A-Za-z0-9]{20,}|secret_[A-Za-z0-9]{30,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
+          if [ -n "$hits" ]; then echo "::error::possible secret committed:"; echo "$hits" | cut -c1-120; exit 1; fi
+      - name: Example profile stays fictional
+        run: |
+          python3 - <<'PY'
+          import json, re, sys
+          p = json.load(open('profile.example.json'))
+          ident = p.get('identity', {})
+          if not ident.get('email', '').endswith('@example.com'):
+              sys.exit('::error::profile.example.json must keep a placeholder @example.com email')
+          if not re.match(r'^\(555\) 01\d-\d{4}$', ident.get('phone', '')):
+              sys.exit('::error::profile.example.json must keep a fictional (555) 01x-xxxx phone number')
+          print('example profile OK')
+          PY

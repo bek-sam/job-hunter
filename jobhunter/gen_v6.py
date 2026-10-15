@@ -206,23 +206,11 @@ def choose_projects(key, terms, n):
 
 # ---------- skills ----------
 CATS = ['Languages', 'Frameworks & Libraries', 'AI / ML', 'Databases & Data', 'Cloud & DevOps', 'Concepts']
-BASE = {
-    'Languages': ['Python', 'Java', 'C++', 'JavaScript', 'TypeScript', 'SQL', 'Swift', 'Bash'],
-    'Frameworks & Libraries': ['React', 'Next.js', 'Node.js', 'FastAPI', 'Django', 'SwiftUI'],
-    'AI / ML': ['PyTorch', 'LLM APIs (Claude, OpenAI)', 'AI Agents (LangGraph)', 'Retrieval-Augmented Generation (RAG)', 'Prompt Engineering'],
-    'Databases & Data': ['PostgreSQL', 'SQLite', 'Redis'],
-    'Cloud & DevOps': ['AWS', 'Docker', 'Terraform', 'GitHub Actions', 'CI/CD', 'Git', 'Linux'],
-    'Concepts': ['REST APIs', 'GraphQL', 'System Design', 'Object-Oriented Programming (OOP)', 'Unit & Integration Testing'],
-}
-GENERIC = {'System Design', 'Object-Oriented Programming (OOP)', 'Unit & Integration Testing'}  # shown only when the job asks for concepts
-ROLE_ADD = {  # role-specific base skills, all used in real work
-    'frontend': {'Frameworks & Libraries': ['Redux', 'Tailwind CSS', 'Bootstrap']}, 'fullstack': {'Frameworks & Libraries': ['Redux', 'Tailwind CSS']},
-}
-ROLE_DROP = {  # base skills that are off-role noise (guide: don't list every technology; JD-named skills are never dropped)
-    'frontend': {'Swift', 'SwiftUI', 'Django', 'FastAPI', 'Terraform', 'Bash'}, 'fullstack': {'Swift', 'SwiftUI'},
-    'backend': {'Swift', 'SwiftUI'}, 'ai': {'Swift', 'SwiftUI'}, 'data': {'Swift', 'SwiftUI'},
-    'devops': {'Swift', 'SwiftUI'}, 'testing': {'Swift', 'SwiftUI'}, 'ios': {'Django', 'Terraform'},
-}
+SK = P.get('skills', default={})   # your skill lists, from profile.json
+BASE = {c: SK.get('base', {}).get(c, []) for c in CATS}
+GENERIC = set(SK.get('generic', []))   # shown only when the job asks for concepts
+ROLE_ADD = SK.get('role_add', {})       # role key -> {category: [skills used in real work]}
+ROLE_DROP = {k: set(v) for k, v in SK.get('role_drop', {}).items()}   # off-role noise (JD-named skills are never dropped)
 CATRX = [
     ('Concepts', r'(rest api|restful|^rest$|graphql|grpc|microservice|websocket|\betl\b|data pipeline|distributed|system design|object-oriented|design pattern|agile|scrum|accessib|wcag)'),
     ('Languages', r'^(python|java|c\+\+|c|c#|\.net|c#/\.net|t-sql|go|rust|kotlin|scala|ruby|php|r|javascript|typescript|sql|swift|bash|shell scripting|html|css|html/css|objective-c)$'),
@@ -237,8 +225,8 @@ RENAME = {  # recruiter guide: name the tool, not the category
     'OpenAI API': 'LLM APIs (Claude, OpenAI)', 'Machine Learning': 'Machine Learning (PyTorch)', 'AI Agents': 'AI Agents (LangGraph)',
     'Testing': 'Unit & Integration Testing', 'ETL': 'ETL Pipelines', 'Data Pipelines': 'ETL Pipelines', 'Unit Testing': 'Unit & Integration Testing', 'Integration Testing': 'Unit & Integration Testing',
 }
-# Unproven JD skills allowed per resume (-1 = all; the owner chose "all", Oct 13 2026). Proven ones are always listed first.
-UNPROVEN_MAX = int(os.environ.get('SKILLS_UNPROVEN_MAX', '-1'))
+# Unproven JD skills allowed per resume (-1 = all, 0 = only skills you have evidence for). Proven ones are always listed first.
+UNPROVEN_MAX = int(os.environ.get('SKILLS_UNPROVEN_MAX', SK.get('unproven_max', 0)))
 EXTRA_CANON = {  # JD terms gen_v5.CANON doesn't know; without these they were silently dropped
     'xcode': 'Xcode', 'uikit': 'UIKit', 'core data': 'Core Data', 'combine': 'Combine', 'swiftdata': 'SwiftData',
     'rhel': 'RHEL', 'red hat enterprise linux': 'RHEL', 'api testing': 'API Testing', 'jest': 'Jest', 'cypress': 'Cypress',
