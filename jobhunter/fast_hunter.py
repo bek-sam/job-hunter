@@ -16,6 +16,9 @@ CT = ZoneInfo('America/Chicago')
 PY = sys.executable
 SOFFICE_DIR = '/Applications/LibreOffice.app/Contents/MacOS'
 os.environ['PATH'] = SOFFICE_DIR + os.pathsep + os.environ.get('PATH', '')
+# sources that give only a posting DATE ("Posted Today"), never a time, on the list and on the job page
+DATE_ONLY_SRC = {'workday', 'oracle', 'amazon', 'ibm', 'speedyapply', 'jobright'}
+LAST_OK = config.DATA / 'hunt' / 'last_ok'   # end time of the last finished run (continuity for first-sighting freshness)
 EXACT_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'simplify', 'simplify-intern', 'amazon', 'google',
              'apple', 'microsoft', 'tiktok', 'eightfold'}
 
@@ -108,6 +111,11 @@ def main():
     per_script = {n: (len(l), rc) for n, l, rc in results}
     rows = merged(results); stats['candidates'] = len(rows)
     con = db(a.dry_run)
+    # first sighting = freshness for date-only sources, but only while scans are continuous (no sleep gap): a URL we have
+    # never seen, dated today, appeared since the previous run <= 40 min ago
+    try: last_ok = dt.datetime.fromisoformat(LAST_OK.read_text().strip())
+    except Exception: last_ok = None
+    continuous = bool(last_ok and t0 - last_ok <= dt.timedelta(minutes=40))
     retry_cut = (t0 - dt.timedelta(minutes=fresh_min)).isoformat()
     def unseen(r):   # 'retry' rows (page had no posting time yet) get another look until they are fresh_min old
         s = con.execute('select verdict, at from seen where url=?', (r['url'],)).fetchone()
@@ -124,6 +132,9 @@ def main():
         j = JD.fetch(r['url'])
         ok = (j.get('exact') and j['posted'] and j['posted'] >= cut) or \
              (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fresh_min)
+        if not ok and continuous and r.get('source') in DATE_ONLY_SRC and not (j.get('exact') or j.get('posted_label')) \
+                and r.get('posted_utc') and utc(r['posted_utc']) >= t0 - dt.timedelta(hours=26):
+            ok = True; r['first_seen'] = True   # date-only source, new since the last continuous scan
         if ok: fresh.append((r, j))
         else:
             known = j.get('exact') or j.get('posted_label')   # we know the age -> too old for good; no age shown -> retry later
@@ -174,6 +185,8 @@ def main():
     today = today_counts(a.dry_run)
     finish(built, stats, per_script, why_dropped, today, a)
     print(f"RUN TIME {(dt.datetime.now(dt.timezone.utc) - t0).total_seconds():.0f}s (built {stats['built']})")
+    if not a.dry_run and not a.no_hunt and all(rc == 0 for _, rc in per_script.values()):
+        LAST_OK.write_text(dt.datetime.now(dt.timezone.utc).isoformat())
     daily_summary(a.dry_run)
     apply_now_daily(a.dry_run)
 
@@ -222,6 +235,7 @@ def build(r, j, sc, dry=False):
             'kind': 'intern' if kind == 'intern' else 'newgrad', 'location': r.get('location', '')}
     posted = (j.get('posted').strftime('%Y-%m-%d %H:%M') if j.get('posted') else r['posted_utc'])
     src = r.get('source') + (f" ({minutes_ago(j.get('posted_label'))} min old)" if j.get('posted_label') and minutes_ago(j.get('posted_label')) else '')
+    if r.get('first_seen'): src += ' (new since last scan; source shows date only)'
     notes = ('FAST | ' + (f'INTERN {term} | ' if kind == 'intern' else '') + f"{src} | fit {sc['fit']} | match {sc['match']}% | evidence {sc['evidence']}%"
              + (' | stretch' if sc['stretch'] else '') + (' | ELIGIBILITY? enrollment rule' if enroll else ''))
     item = dict(company=r['company'], title=r['title'], kind=kind, posted=posted, fit=sc['fit'], source=r.get('source'), link=r['url'], notes=notes)
