@@ -57,7 +57,9 @@ if __name__ == '__main__':
         if not t: continue
         rows.append(('simplify-intern', x['company_name'], x['title'], loc, x['url'], x['date_posted'],
                      tier or t, ', '.join(sorted(terms))))
+    failed = False
     if not a.no_boards:  # (2) company boards, intern titles allowed
+        hunt.load_cache(a.out)   # reuse the boards hunt.py fetched minutes ago
         bl = sorted(set(hunt.boards(lst)) | set(hunt.boards(json.loads(hunt.get(hunt.SIMPLIFY, timeout=60)))))
         errs = 0
         with cf.ThreadPoolExecutor(a.workers) as ex:
@@ -66,7 +68,8 @@ if __name__ == '__main__':
                 for src, co, title, loc, url, t in r:
                     tier = iwant(title, loc or url.replace('-', ' ').replace('/', ' '), co)
                     if tier: rows.append((src, co, title, loc, url, t, tier, ''))
-        print(f'boards={len(bl)} errors={errs}')
+        print(f'boards={len(bl)} errors={errs} reused_from_hunt={sum(json.dumps(list(b)) in hunt._cache for b in bl)}')
+        if errs > 0.3 * len(bl): print('INTERN FAILED: most boards errored', file=__import__('sys').stderr); failed = True
     res, keys = [], set()
     for src, co, title, loc, url, t, tier, terms in rows:
         k = (re.sub(r'\W', '', co.lower())[:12], title.lower(), loc.lower()[:20])
@@ -78,3 +81,4 @@ if __name__ == '__main__':
     json.dump(res, open(a.out, 'w'), indent=1)
     print(f'intern candidates={len(res)} in {time.time()-t0:.0f}s')
     for r in res: print(f"[{r['tier']}] {r['posted_utc']} | {r['source']} | {r['company']} | {r['title']} | {r['terms']} | {r['location'][:40]} | {r['url']}")
+    if failed: __import__('sys').exit(2)   # not a successful scan -> fast_hunter catches up next run

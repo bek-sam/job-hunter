@@ -12,7 +12,7 @@ Usage:  python3 bigtech.py [--hours 1] [--out new_bigtech.json] [--no-linkedin]
 Output rows: kind = newgrad (tier A/B/D, hunt.py rules) or intern (tier I/D, intern_hunt.py rules); exact = True when the
 source gives an exact post time, False when it gives only a date ("Posted Today" etc.) -> confirm the time on the job page.
 """
-import json, re, time, argparse, html, datetime as dt, urllib.parse, urllib.request, concurrent.futures as cf
+import json, os, re, sys, time, argparse, html, datetime as dt, urllib.error, urllib.parse, urllib.request, concurrent.futures as cf
 import hunt, intern_hunt as ih
 
 def get(url, data=None, timeout=30, tries=3, headers=None):
@@ -110,16 +110,22 @@ def goldman(cut):
 def tiktok(cut):
     # list API has no post time; the job id (ByteDance snowflake) carries its creation time in the top 32 bits
     H = {'website-path': 'tiktok', 'accept-language': 'en-US', 'Origin': 'https://lifeattiktok.com', 'Referer': 'https://lifeattiktok.com/'}
-    for q in ('software engineer', 'new grad', 'graduate', 'intern', 'machine learning', 'backend', 'frontend'):
+    seen = set()
+    for q in ('software engineer', 'new grad', 'graduate', 'intern', 'machine learning', 'frontend'):   # 'backend' is inside 'software engineer'
+      # Oct 14: results are sorted by relevance, not date -> page through all of them (first 100 of 742 missed new posts)
+      for off in range(0, 1500, 100):
         d = json.loads(get('https://api.lifeattiktok.com/api/v1/public/supplier/search/job/posts',
                            {'recruitment_id_list': [], 'job_category_id_list': [], 'subject_id_list': [], 'location_code_list': [],
-                            'keyword': q, 'limit': 100, 'offset': 0}, headers=H))
-        for j in (d.get('data') or {}).get('job_post_list') or []:
+                            'keyword': q, 'limit': 100, 'offset': off}, headers=H))
+        lst = (d.get('data') or {}).get('job_post_list') or []
+        for j in lst:
             t = int(j['id']) >> 32
-            if t >= cut:
+            if t >= cut and j['id'] not in seen:
+                seen.add(j['id'])
                 c = j.get('city_info') or {}; p = c.get('parent') or {}; pp = p.get('parent') or {}
                 loc = ', '.join(filter(None, [c.get('en_name'), p.get('en_name'), pp.get('en_name')]))
                 yield 'TikTok', j['title'], loc, f"https://lifeattiktok.com/search/{j['id']}", t, True
+        if len(lst) < 100 or off + 100 >= ((d.get('data') or {}).get('count') or 0): break
 
 # ---------------- Eightfold (pcsx / apply v2) ----------------
 EIGHTFOLD = [  # (company, host, domain, api)   api: pcsx = /api/pcsx/search, v2 = /api/apply/v2/jobs
@@ -147,7 +153,7 @@ def eightfold(co, host, dom, api, cut):
                 url = p.get('positionUrl') or p.get('canonicalPositionUrl') or f"/careers/job/{p.get('id')}"
                 loc = '; '.join(p.get('standardizedLocations') or p.get('locations') or [p.get('location') or ''])
                 yield co, p['name'], loc, url if url.startswith('http') else f'https://{host}{url}', t, exact
-            if old or not ps: break
+            if (old and api == 'pcsx') or not ps: break   # v2 ignores sort_by=timestamp: read all pages
             time.sleep(1)
 
 # ---------------- Oracle Recruiting Cloud ----------------
@@ -210,29 +216,51 @@ def board_jobs(b, cut, hours):
     for k, co, title, loc, url, t in rows: yield co, title, loc, url, t, k != 'workday'
 
 # ---------------- LinkedIn guest search ----------------
-LI_Q = [('software engineer new grad', 2), ('entry level software engineer', 2), ('junior software engineer', 2),
-        ('associate software engineer', 2), ('software engineer I', 2), ('machine learning engineer', 2),
+# f_E: 1 = internship, 2 = entry level. Oct 14: added the broad entry-level searches (plain 'software engineer' was missing)
+LI_Q = [('software engineer', 2), ('software developer', 2), ('software engineer new grad', 2), ('junior software engineer', 2),
+        ('associate software engineer', 2), ('software engineer I', 2), ('full stack engineer', 2), ('backend engineer', 2),
+        ('frontend engineer', 2), ('machine learning engineer', 2), ('ai engineer', 2), ('data engineer', 2),
+        ('ios engineer', 2), ('forward deployed engineer', 2),
         ('software engineer intern', 1), ('software engineering internship 2027', 1), ('machine learning intern', 1),
-        ('software developer co-op', 1), ('data engineer intern', 1)]
+        ('ai intern', 1), ('software developer co-op', 1), ('data engineer intern', 1)]
+
+LI_PAGES = int(os.environ.get('LI_PAGES', '40'))   # max pages (10 jobs each) per search
+LI_BUDGET = float(os.environ.get('LI_BUDGET', '300'))   # seconds; fast_hunter kills a hunter after 600 s
 
 def linkedin(cut, hours):
+    """LinkedIn public guest search. Oct 14: pages are 10 cards (not 25), so the old code read only 10 results per search
+    while the broad entry-level 'software engineer' search alone has ~200 per hour. Now: page until a page adds nothing
+    new; stop LinkedIn for this run on HTTP 429/999 (rate limit) instead of silently dropping searches."""
     secs = max(3600, int(hours * 3600))
+    seen, errors = set(), []
+    t_end = time.time() + LI_BUDGET
     for q, lvl in LI_Q:
-        for start in (0, 25):
+        for page in range(LI_PAGES):
+            if time.time() > t_end:
+                print(f'linkedin: time budget ({LI_BUDGET:.0f}s) used up at "{q}" page {page}', file=sys.stderr); return
             u = 'https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?' + urllib.parse.urlencode(
-                {'keywords': q, 'location': 'United States', 'f_TPR': f'r{secs}', 'f_E': lvl, 'start': start})
+                {'keywords': q, 'location': 'United States', 'f_TPR': f'r{secs}', 'f_E': lvl, 'start': page * 10})
             try: s = get(u, tries=2)
-            except Exception: break
+            except urllib.error.HTTPError as e:
+                errors.append(f'{q} p{page}: HTTP {e.code}')
+                if e.code in (429, 999): print('linkedin: rate limited, stopping for this run:', errors[-1], file=sys.stderr); return
+                break
+            except Exception as e:
+                errors.append(f'{q} p{page}: {type(e).__name__}'); break
             cards = s.split('<li>')[1:]
+            new = 0
             for c in cards:
                 f = lambda p: html.unescape(re.sub(r'<.*?>', '', (re.search(p, c, re.S) or [None, ''])[1])).strip()
                 title = f(r'base-search-card__title[^>]*>(.*?)</h3>'); co = f(r'base-search-card__subtitle[^>]*>(.*?)</h4>')
                 loc = f(r'job-search-card__location[^>]*>(.*?)</span>')
                 link = (re.search(r'href="(https://[^"]*linkedin\.com/jobs/view/[^"?]+)', c) or [None, ''])[1]
                 ts = (re.search(r'datetime="([\d-]+)"', c) or [None, ''])[1]
-                if title and link: yield co, title, loc, link, hunt.iso(ts + 'T00:00:00+00:00') if ts else time.time(), False
-            if len(cards) < 25: break
-            time.sleep(2)
+                if title and link and link not in seen:
+                    seen.add(link); new += 1
+                    yield co, title, loc, link, hunt.iso(ts + 'T00:00:00+00:00') if ts else time.time(), False
+            if not cards or not new: break      # end of results, or only jobs other searches already returned
+            time.sleep(1)
+    if errors: print(f'linkedin: {len(errors)} search errors, e.g. {errors[:3]}', file=sys.stderr)
 
 def sources(hours, no_li):
     s = {'amazon': amazon, 'google': google, 'apple': apple, 'ibm': ibm, 'goldman': goldman, 'tiktok': tiktok}
@@ -276,3 +304,4 @@ if __name__ == '__main__':
     print(f'sources={len(srcs)} ok={len(srcs) - len(errs)} errors={len(errs)}', {k: v for k, v in errs.items()})
     print(f'candidates={len(res)} (newgrad {sum(r["kind"]=="newgrad" for r in res)}, intern {sum(r["kind"]=="intern" for r in res)}) in {time.time()-t0:.0f}s')
     for r in res: print(f"[{r['kind']}/{r['tier']}{'' if r['exact'] else '~date'}] {r['posted_utc']} | {r['source']} | {r['company']} | {r['title']} | {r['location'][:40]} | {r['url']}")
+    if len(errs) > 0.3 * len(srcs): print('BIGTECH FAILED: most sources errored', file=sys.stderr); sys.exit(2)

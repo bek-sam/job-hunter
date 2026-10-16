@@ -8,7 +8,7 @@ ever posted a new-grad role there, ~2,700 boards) + EXTRA below. No state file n
 freshness comes from each board's own publish time; dedupe against Notion afterwards.
 """
 import json, re, sys, time, argparse, datetime as dt, concurrent.futures as cf
-import urllib.request
+import os, random, threading, urllib.error, urllib.request
 
 UA = {'User-Agent': 'Mozilla/5.0 (job-hunter)', 'Accept': 'application/json'}
 SIMPLIFY = 'https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/.github/scripts/listings.json'
@@ -46,12 +46,36 @@ US = re.compile(r'(united states|\busa\b|\bu\.s\.|\bus\b|remote|anywhere|, ?(al|
                 r'redmond|bellevue|atlanta|denver|dallas|houston|miami|washington|philadelphia|pittsburgh|san diego|portland|'
                 r'raleigh|salt lake|phoenix|detroit|minneapolis|nashville|charlotte|columbus|bay area|california|texas|virginia)', re.I)
 
-def get(url, data=None, timeout=20):
+# Oct 14: 48 parallel requests made Workday answer HTTP 429 for ~330 boards every run (and intern_hunt.py doubled it).
+# Now: at most WD_PER_HOST requests at a time per Workday server (wd1, wd5, ...) and retries with backoff on 429 / 5xx.
+WD_PER_HOST = int(os.environ.get('WD_PER_HOST', '6'))
+_host_locks, _hl = {}, threading.Lock()
+
+def _gate(url):
+    m = re.search(r'\.(wd\d+)\.myworkdayjobs\.com', url)
+    if not m: return None
+    with _hl: return _host_locks.setdefault(m.group(1), threading.BoundedSemaphore(WD_PER_HOST))
+
+def get(url, data=None, timeout=20, tries=4):
     h = dict(UA)
     if data is not None: h['Content-Type'] = 'application/json'
-    req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None, headers=h)
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode('utf-8', 'replace')
+    gate = _gate(url)
+    for k in range(tries):
+        req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None, headers=h)
+        try:
+            if gate: gate.acquire()
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return r.read().decode('utf-8', 'replace')
+            finally:
+                if gate: gate.release()
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504, 520) or k == tries - 1: raise
+            ra = e.headers.get('Retry-After') if e.headers else None
+            time.sleep(min(float(ra), 20) if ra and ra.isdigit() else 2 ** k + random.random() * 2)
+        except (TimeoutError, urllib.error.URLError) as e:
+            if k >= 1: raise
+            time.sleep(1 + random.random())
 
 def iso(s):
     try: return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
@@ -101,7 +125,7 @@ def sr(slug, cut):
 def wd(tenant, wdn, site, cut, hours):
     ok = ('Posted Today',) + (('Posted Yesterday',) if hours > 20 else ())
     base = f'https://{tenant}.{wdn}.myworkdayjobs.com'
-    for off in range(0, 200, 20):     # default sort = newest first; stop at first older posting
+    for off in range(0, 400, 20):     # default sort = newest first; stop at first older posting (big boards post 100+ a day)
         d = json.loads(get(f'{base}/wday/cxs/{tenant}/{site}/jobs', {'appliedFacets': {}, 'limit': 20, 'offset': off, 'searchText': ''}))
         ps = d.get('jobPostings', [])
         for j in ps:
@@ -109,22 +133,64 @@ def wd(tenant, wdn, site, cut, hours):
                 yield tenant, j['title'], j.get('locationsText', ''), f"{base}/{site}{j['externalPath']}", time.time()
         if not ps or any(j.get('postedOn') not in ok for j in ps): break
 
+WATCHLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'watchlist.json')
+
+def watchlist():
+    """Extra boards found by research (Oct 15: YC hiring companies + well-known tech employers + other GitHub job lists),
+    validated to exist. Edit watchlist.json to add companies: ["greenhouse", "slug"] / ["workday", "tenant", "wd5", "Site"]."""
+    try: return {tuple(b) for b in json.load(open(WATCHLIST))}
+    except Exception: return set()
+
 def boards(simplify):
-    seen = set(EXTRA)
+    seen = set(EXTRA) | watchlist()
     for x in simplify:
         for k, p in PATS.items():
             m = re.search(p, x.get('url', ''))
             if m: seen.add((k,) + m.groups())
     return sorted(seen)
 
+# Shared per-run cache: hunt.py saves every board's postings; intern_hunt.py (run right after) reuses them instead of
+# hitting the same ~2,800 boards again. Boards that answer 404 (deleted / renamed) are skipped for a day.
+CACHE_DIR = None
+_cache, _dead, _new_dead = {}, {}, {}
+
+def load_cache(out_path, max_age=900):
+    global CACHE_DIR
+    CACHE_DIR = os.path.dirname(os.path.abspath(out_path))
+    try:
+        c = json.load(open(os.path.join(CACHE_DIR, 'board_cache.json')))
+        if time.time() - c.get('t', 0) <= max_age: _cache.update({k: (c['cut'], v) for k, v in c['boards'].items()})
+    except Exception: pass
+    try:
+        _dead.update({k: t for k, t in json.load(open(os.path.join(CACHE_DIR, 'dead_boards.json'))).items() if time.time() - t < 86400})
+    except Exception: pass
+
+def save_cache(results, cut):
+    if not CACHE_DIR: return
+    tmp = os.path.join(CACHE_DIR, 'board_cache.json.tmp')
+    json.dump({'t': time.time(), 'cut': cut, 'boards': results}, open(tmp, 'w'))
+    os.replace(tmp, os.path.join(CACHE_DIR, 'board_cache.json'))
+    json.dump({**_dead, **_new_dead}, open(os.path.join(CACHE_DIR, 'dead_boards.json'), 'w'))
+
 def run_board(b, cut, hours):
+    key = json.dumps(list(b))
+    if key in _dead: return [], None                      # 404 earlier today: skip
+    if key in _cache and _cache[key][0] <= cut:            # fetched minutes ago by hunt.py with a wider window
+        return [tuple(r) for r in _cache[key][1] if r[-1] >= cut], None
     k = b[0]
     try:
         it = {'greenhouse': lambda: gh(b[1], cut), 'ashby': lambda: ashby(b[1], cut), 'lever': lambda: lever(b[1], cut),
               'smartrecruiters': lambda: sr(b[1], cut), 'workday': lambda: wd(b[1], b[2], b[3], cut, hours)}[k]()
-        return [(k,) + r for r in it], None
+        rows = [(k,) + r for r in it]
+        _fresh[key] = rows
+        return rows, None
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 410, 422): _new_dead[key] = time.time()   # board deleted, renamed or moved off this ATS
+        return [], f'{b}: HTTP {e.code}'
     except Exception as e:
         return [], f'{b}: {type(e).__name__}'
+
+_fresh = {}   # boards fetched successfully this run -> saved for intern_hunt.py
 
 def trackers(cut, simplify):
     out = []
@@ -154,6 +220,7 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(); ap.add_argument('--hours', type=float, default=3); ap.add_argument('--out', default='new_roles.json')
     ap.add_argument('--workers', type=int, default=48); a = ap.parse_args()
     t0 = time.time(); cut = t0 - a.hours * 3600
+    load_cache(a.out, max_age=0)   # hunt.py always fetches fresh; it only loads the dead-board list
     simplify = json.loads(get(SIMPLIFY, timeout=60))
     bl = boards(simplify)
     rows, errs = [], []
@@ -161,6 +228,7 @@ if __name__ == '__main__':
         for r, e in ex.map(lambda b: run_board(b, cut, a.hours), bl):
             rows += r
             if e: errs.append(e)
+    save_cache(_fresh, cut)
     rows += trackers(cut, simplify)
     res, keys = [], set()
     for src, co, title, loc, url, t in rows:
@@ -174,5 +242,8 @@ if __name__ == '__main__':
     res.sort(key=lambda r: (r['tier'], r['source'] in ('jobright', 'speedyapply', 'simplify'), r['posted_utc']), reverse=False)
     res.sort(key=lambda r: ('ABD'.index(r['tier']), r['source'] in ('jobright', 'speedyapply'), -iso(r['posted_utc'].replace(' ', 'T') + ':00+00:00')))
     json.dump(res, open(a.out, 'w'), indent=1)
-    print(f'boards={len(bl)} errors={len(errs)} candidates={len(res)} in {time.time()-t0:.0f}s')
+    import collections
+    kinds = collections.Counter(e.split(': ', 1)[1] for e in errs)
+    print(f'boards={len(bl)} errors={len(errs)} {dict(kinds)} skipped_dead={len(_dead)} candidates={len(res)} in {time.time()-t0:.0f}s')
     for r in res: print(f"[{r['tier']}] {r['posted_utc']} | {r['source']} | {r['company']} | {r['title']} | {r['location'][:40]} | {r['url']}")
+    if len(errs) > 0.3 * len(bl): print('HUNT FAILED: most boards errored', file=sys.stderr); sys.exit(2)   # not a successful scan

@@ -18,7 +18,7 @@ SOFFICE_DIR = '/Applications/LibreOffice.app/Contents/MacOS'
 os.environ['PATH'] = SOFFICE_DIR + os.pathsep + os.environ.get('PATH', '')
 # sources that give only a posting DATE ("Posted Today"), never a time, on the list and on the job page
 DATE_ONLY_SRC = {'workday', 'oracle', 'amazon', 'ibm', 'speedyapply', 'jobright'}
-LAST_OK = config.DATA / 'hunt' / 'last_ok'   # end time of the last finished run (continuity for first-sighting freshness)
+LAST_OK = config.DATA / 'hunt' / 'last_ok'   # start time of the last successful scan (catch-up + first-sighting continuity)
 EXACT_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'simplify', 'simplify-intern', 'amazon', 'google',
              'apple', 'microsoft', 'tiktok', 'eightfold'}
 
@@ -42,8 +42,9 @@ def run_hunters(hours):
             return name, json.load(open(args[2])), r.returncode
         except Exception as e:
             return name, [], f'failed: {e}'
-    with cf.ThreadPoolExecutor(3) as ex:
-        return list(ex.map(go, jobs))
+    first = go('hunt')   # Oct 14: hunt.py first; intern_hunt.py then reuses its board fetches (no double Workday load)
+    with cf.ThreadPoolExecutor(2) as ex:
+        return [first] + list(ex.map(go, ['intern', 'bigtech']))
 
 
 def merged(results):
@@ -66,6 +67,17 @@ def minutes_ago(label):
     m = re.search(r'(\d+)\s*(minute|min|hour)', label or '', re.I)
     if not m: return None
     return int(m.group(1)) * (60 if m.group(2).lower().startswith('hour') else 1)
+
+
+def label_kind(label):
+    """'minutes' (exact age in minutes_ago), 'today' (date only: 'Posted Today' / 'Just posted'), 'old' (yesterday, days,
+    weeks, 30+), or None when there is no label."""
+    l = (label or '').lower()
+    if not l: return None
+    if minutes_ago(l) is not None: return 'minutes'
+    if re.search(r'today|just (now|posted)|moments? ago|seconds? ago|\bnew\b', l): return 'today'
+    if re.search(r'yesterday|day|week|month|year|30\+', l): return 'old'
+    return None
 
 
 def norm(s):
@@ -99,7 +111,17 @@ def main():
         print('NOTION_TOKEN is empty in .env -> running as --dry-run (no Notion writes, no LLM calls)')
         a.dry_run = True
     fresh_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
-    t0 = dt.datetime.now(dt.timezone.utc); cut = t0 - dt.timedelta(minutes=fresh_min)
+    t0 = dt.datetime.now(dt.timezone.utc)
+    # Auto catch-up (Oct 15): if the last SUCCESSFUL run ended longer ago than the normal window (Mac asleep, crash, no
+    # network, a hunter script failed), widen this run's window back to it (+10 min overlap, max MAX_CATCHUP_MIN).
+    try: last_ok = dt.datetime.fromisoformat(LAST_OK.read_text().strip())
+    except Exception: last_ok = None
+    gap_min = (t0 - last_ok).total_seconds() / 60 if last_ok else None
+    catch_up = bool(gap_min and gap_min + 10 > fresh_min)
+    if catch_up:
+        fresh_min = max(fresh_min, min(int(gap_min) + 10, config.MAX_CATCHUP_MIN))
+        print(f'CATCH-UP: last successful run ended {gap_min:.0f} min ago -> window {fresh_min} min')
+    cut = t0 - dt.timedelta(minutes=fresh_min)
     stats = dict(candidates=0, stale=0, unverified=0, blocked=0, low_fit=0, dupes=0, built=0, errors=0)
     why_dropped = []
 
@@ -113,9 +135,8 @@ def main():
     con = db(a.dry_run)
     # first sighting = freshness for date-only sources, but only while scans are continuous (no sleep gap): a URL we have
     # never seen, dated today, appeared since the previous run <= 40 min ago
-    try: last_ok = dt.datetime.fromisoformat(LAST_OK.read_text().strip())
-    except Exception: last_ok = None
-    continuous = bool(last_ok and t0 - last_ok <= dt.timedelta(minutes=40))
+    # catch-up runs count too: every scan since last_ok is accounted for, so a never-seen URL dated today is new in the gap
+    continuous = bool(last_ok and (t0 - last_ok <= dt.timedelta(minutes=40) or catch_up))
     retry_cut = (t0 - dt.timedelta(minutes=fresh_min)).isoformat()
     def unseen(r):   # 'retry' rows (page had no posting time yet) get another look until they are fresh_min old
         s = con.execute('select verdict, at from seen where url=?', (r['url'],)).fetchone()
@@ -124,20 +145,27 @@ def main():
 
     # 1) freshness: exact timestamp within the window, or proven on the job page
     fresh = []
+    # job pages are fetched in parallel (Oct 14: LinkedIn now yields ~400 cards per run; one-by-one took minutes)
+    need = [r for r in rows if not r['exact']]
+    with cf.ThreadPoolExecutor(int(os.environ.get('JD_WORKERS', '8'))) as ex:
+        pages = dict(zip([r['url'] for r in need], ex.map(lambda r: JD.fetch(r['url'], render=False), need)))
+    for u, pg in pages.items():   # pages that need a real browser: one at a time (one headless Chromium per fetch)
+        if not pg.get('text'): pages[u] = JD.fetch(u)
     for r in rows:
         if r['exact']:
             if utc(r['posted_utc']) >= cut: fresh.append((r, None))
             else: stats['stale'] += 1
             continue
-        j = JD.fetch(r['url'])
+        j = pages[r['url']]
         ok = (j.get('exact') and j['posted'] and j['posted'] >= cut) or \
              (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fresh_min)
-        if not ok and continuous and r.get('source') in DATE_ONLY_SRC and not (j.get('exact') or j.get('posted_label')) \
+        lk = label_kind(j.get('posted_label'))
+        if not ok and continuous and r.get('source') in DATE_ONLY_SRC and not j.get('exact') and lk in (None, 'today') \
                 and r.get('posted_utc') and utc(r['posted_utc']) >= t0 - dt.timedelta(hours=26):
             ok = True; r['first_seen'] = True   # date-only source, new since the last continuous scan
         if ok: fresh.append((r, j))
         else:
-            known = j.get('exact') or j.get('posted_label')   # we know the age -> too old for good; no age shown -> retry later
+            known = j.get('exact') or lk in ('minutes', 'old')   # age known -> too old for good; unknown / 'today' -> retry
             stats['stale' if known else 'unverified'] += 1
             con.execute('insert or ignore into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'stale' if known else 'retry', None, t0.isoformat()))
 
@@ -186,7 +214,7 @@ def main():
     finish(built, stats, per_script, why_dropped, today, a)
     print(f"RUN TIME {(dt.datetime.now(dt.timezone.utc) - t0).total_seconds():.0f}s (built {stats['built']})")
     if not a.dry_run and not a.no_hunt and all(rc == 0 for _, rc in per_script.values()):
-        LAST_OK.write_text(dt.datetime.now(dt.timezone.utc).isoformat())
+        LAST_OK.write_text(t0.isoformat())   # start of this scan: everything posted before it is covered
     daily_summary(a.dry_run)
     apply_now_daily(a.dry_run)
 

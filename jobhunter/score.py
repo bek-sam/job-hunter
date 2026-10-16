@@ -14,11 +14,11 @@ for _, stack, _, _ in PROJ:
 BLOCK = [  # never written to Notion (Oct 4 2026 rule) -> just counted
     (r'\b(u\.?s\.?|united states) citizen(ship)?\b(?! or)|must be a u\.?s\.? citizen|citizenship is required', 'citizenship'),
     (r'security clearance|secret clearance|ts/sci|top secret|active clearance|clearance (is )?required|obtain (and maintain )?a (security )?clearance', 'clearance'),
-    (r'\bitar\b|u\.?s\.? person', 'ITAR/US person'),
+    (r'\bitar\b|(?<![a-z])u\.?s\.? persons?\b', 'ITAR/US person'),   # Oct 14: 'Indigenous persons' matched 'us person'
     (r'\b([2-9]|1[0-9])\+? (or more )?years?(?: of)? (professional |industry |relevant |hands-on )?(software |engineering |work )?experience', 'seniority'),
     (r'\b(ph\.?d|doctoral|master\'?s degree) (is )?(required|only)', 'PhD/MS required'),
 ]
-STAFFING = re.compile(r'taskverse|cybercoders|jobot|dice\b|robert half|insight global|teksystems|staffing|talent ?pluto|recruit(ing|ers) (llc|inc)|hirequest|actalent|revature|synergisticit|executiveplacements|placements?\b|afterquery|\bexperts$|beaconfire|smartiplace|ampcus|apex systems|kforce|randstad|adecco|aerotek|hays\b|motion recruitment|crossover|outlier|mercor|data ?annotation|turing\b|braintrust|talent ?hop|remote ?hunter|jobgether|haystack|portfolio ?future|the ?ladders|kansasworks|jooble|lensa|jobs ?via|hiring ?cafe|v-?soft|staff ?xpert|selby jennings|harnham|oscar technology|jefferson frank|nigel frank', re.I)  # Oct 13: aggregator reposts close within hours / AI-apply walls
+STAFFING = re.compile(r'taskverse|cybercoders|jobot|dice\b|robert half|insight global|teksystems|staffing|talent ?pluto|recruit(ing|ers) (llc|inc)|hirequest|actalent|revature|synergisticit|executiveplacements|placements?\b|afterquery|\bexperts$|beaconfire|smartiplace|ampcus|apex systems|kforce|randstad|adecco|aerotek|hays\b|motion recruitment|crossover|outlier|mercor|data ?annotation|turing\b|braintrust|talent ?hop|remote ?hunter|jobgether|haystack|portfolio ?future|the ?ladders|kansasworks|jooble|lensa|jobs ?via|hiring ?cafe|v-?soft|staff ?xpert|selby jennings|harnham|oscar technology|jefferson frank|nigel frank|torentify|peterson technology|rangam|inceed|biospace\b', re.I)  # Oct 13: aggregator reposts close within hours / AI-apply walls
 
 ROLE35 = re.compile(r'full[ -]?stack|back[ -]?end|backend|\bai\b|machine learning|\bml\b|genai|generative|\bllm|ios|mobile|android|front[ -]?end|frontend|\bweb\b|software (engineer|developer|development engineer)|\bswe\b|forward deployed|product engineer|application (engineer|developer)', re.I)
 ROLE25 = re.compile(r'data engineer|cloud|platform|devops|\bsre\b|site reliability|infrastructure', re.I)
