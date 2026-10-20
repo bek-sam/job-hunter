@@ -36,7 +36,7 @@ SKIP = re.compile(r'(senior|\bsr\.?\b|staff|principal|\blead\b|manager|director|
                   r'1[0-9]\+? years|inspector|plumber|checker)', re.I)
 ENTRY = re.compile(r'(new ?grad|graduate|entry|early career|early-career|junior|\bjr\b|associate|university|campus|college|'
                    r'\bi\b\s*$|\bi\b[,(\-–]|engineer i\b|level 1|\bl1\b|2026|2027|apprentice|rotational|emerging talent|residency)', re.I)
-NON_US = re.compile(r'(canada|toronto|vancouver|montreal|ottawa|\buk\b|united kingdom|london|england|ireland|dublin|india|bangalore|'
+NON_US = re.compile(r'(canada|toronto|vancouver|montreal|ottawa|\buk\b|united kingdom|london|england|ireland|dublin|belfast|leeds|manchester|edinburgh|scotland|india|bangalore|'
                     r'bengaluru|hyderabad|pune|chennai|germany|berlin|munich|france|paris|netherlands|amsterdam|poland|spain|'
                     r'singapore|japan|tokyo|china|shanghai|beijing|hong kong|taiwan|korea|australia|sydney|mexico|brazil|'
                     r'\bind\b|israel|tel aviv|switzerland|zurich|sweden|romania|serbia|philippines|vietnam|argentina|colombia|emea|apac|latam)', re.I)
@@ -84,9 +84,24 @@ def iso(s):
 DEFENSE = re.compile(r'(lockheed|l3harris|northrop|\bngc\b|booz allen|caci|national security agency|raytheon|\brtx\b|general dynamics|'
                      r'leidos|\bsaic\b|\bbae\b|frontier technology|mach industries|anduril|huntington ingalls|peraton|mitre|parsons|amentum|\bpae\b|accenture federal)', re.I)
 
+def non_us_title(title):
+    """A non-US place named in the title's location part ("... - Leeds, United Kingdom", "(London)"), not "India Payments"."""
+    parts = re.split(r'\s[-–—|@]\s|[,(/]', title or '', maxsplit=1)
+    tail = parts[1] if len(parts) > 1 else ''
+    return bool(tail and NON_US.search(tail) and not US.search(tail))
+
+
+def other_school_program(title):
+    """Programs only for one university's students ("Northeastern University Software Engineer Co-op", Oct 19)."""
+    import applicant as P
+    m = re.search(r'\b((?:[A-Z][\w&.-]+ ){1,3}(?:University|College|Institute of Technology)(?: of [A-Z][\w-]+)?)\b|\b(UC [A-Z]\w+|Georgia Tech|Virginia Tech|Texas A&M|MIT|CMU)\b', title or '')
+    return bool(m and not re.search((P.get('school', 'rx') or r'(?!x)x'), title, re.I) and re.search(r'co-?op|intern|program|fellow', title, re.I))
+
+
 def want(title, loc, co=''):
     if not ROLE.search(title) or SKIP.search(title): return None
     if loc and NON_US.search(loc) and not US.search(loc): return None
+    if non_us_title(title) or other_school_program(title): return None   # Oct 19: "Software Engineer - Leeds, United Kingdom" had no loc
     if loc and not US.search(loc) and not re.search(r'remote', loc, re.I): return None
     if DEFENSE.search(co): return 'D'            # defense: usually US-citizen / clearance -> check JD, low priority
     return 'A' if ENTRY.search(title) else 'B'   # A = explicit entry-level title, B = plain title (check JD years)

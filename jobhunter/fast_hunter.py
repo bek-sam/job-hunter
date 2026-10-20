@@ -298,12 +298,15 @@ def build(r, j, sc, dry=False):
         print('cover letter files skipped:', e)
     link = j.get('apply_url') or r['url']
     import community
-    # where the application happens: LinkedIn posting without an outside apply URL = Easy Apply; else the target site
-    via = ('LinkedIn Easy Apply' if 'linkedin.com' in link and j.get('ats') == 'linkedin' and not j.get('apply_url')
-           else community.apply_via(link))
+    # where the application happens (Oct 20, owner): Easy Apply only when LinkedIn's own page shows its Easy Apply button
+    # (a missing outside URL just means LinkedIn hides it from logged-out visitors); else the site Apply leads to
+    via, apply_link, via_tag = community.via_and_link(link, r['company'], r['title'])
+    if via_tag: notes = f"{via_tag} | {notes}"
     props = notion.props(Company=r['company'], Position=r['title'], Location=r.get('location', ''), Link=link,
                          DatePosted=posted[:10], Status='To apply', Notes=notes, Recruiters=posting_contacts(text, r['url']) or None)
     props['Apply Via'] = {'select': {'name': via}}
+    if apply_link: props['Apply Link'] = {'url': apply_link[:1900]}
+    props['Type'] = {'select': {'name': community.job_type(r['title'], kind=kind)}}   # same value as the Community board
     page = notion.create_row(props,
                              notion.file_blocks(pdf_id, docx_id) + extra + notion.blocks_from_md(md))
     item['notion'] = page.get('url'); item['folder'] = folder
@@ -361,6 +364,20 @@ def finish(built, stats, per_script, why, today, a):
     with open(log / f'{dt.datetime.now(CT):%Y-%m-%d}.md', 'a') as f: f.write(txt + '\n\n')
     if built and not a.dry_run:
         notify.push(f"{len(built)} new best-match roles — apply now: " + ', '.join(b['company'] for b in built[:6]) + f' ({tc})')
+    # Oct 20: off by default -- li_resolve calls LinkedIn's internal API with his session, which LinkedIn's terms /
+    # robots.txt prohibit (account risk). Opt in with LI_RESOLVE=1 in .env.
+    if built and not a.dry_run and os.environ.get('LI_RESOLVE') == '1':   # where each new LinkedIn row really applies
+        try:
+            import subprocess, sys as _s
+            subprocess.run([_s.executable, str(config.ROOT / 'jobhunter' / 'li_resolve.py'), '--pending'], timeout=300,
+                           cwd=str(config.ROOT / 'jobhunter'))
+        except Exception as e:
+            print('LinkedIn resolve skipped:', str(e)[:100])
+    if not a.dry_run:   # Oct 19: Apply Prep sat unloaded Oct 13-19 and nobody noticed -> the 15-min hunter checks on it
+        try:
+            import metrics; metrics.stale_alarm()
+        except Exception as e:
+            print('apply alarm failed:', str(e)[:100])
 
 
 def daily_summary(dry):

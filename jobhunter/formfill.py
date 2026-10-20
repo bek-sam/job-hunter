@@ -12,6 +12,7 @@ KEYED = [
     (r'first (and|&|/) last name|first,? (middle,? )?(and )?last|full (legal )?name', 'full_name_first_last'),
     (r'^(legal )?first name|given name|^first\b', 'first_name'),
     (r'^(legal )?last name|family name|surname|^last\b', 'last_name'),
+    (r'preferred last name', 'last_name'),
     (r'preferred (first )?name', 'preferred_name'),
     (r'^(full |legal )?name\b(?!.*(school|company|employer|reference|referr))', 'full_name'),
     (r'e-?mail', 'email'),
@@ -23,13 +24,41 @@ KEYED = [
     (r'github', 'github'),
     (r'website|portfolio|personal (site|url)|other url', 'website'),
     (r'address line 1|street address|^street', 'address_line1'),
+    (r'address line 2|^apt|apartment|suite', 'address_line2'),
     (r'\baddress\b', 'address_full'),
+    # Oct 20: the owner's answers to questions that sent rows to NEEDS YOU (profile.json holds the values)
+    (r'what city do you (live|reside)|city (do you|you) (live|reside) in|city of residence', 'city_of_residence'),
+    (r'supports remote work in|remote work .{0,120}(drop ?down|select)|(location|state) you (will|would) (be )?work(ing)? remotely', 'remote_location'),
+    (r'(outstanding|current|other|competing|pending|existing) (job |internship )?offers?|have any offers|offers? or deadlines', 'current_offers'),
+    (r'(graduate|graduation|finish).{0,20}(from )?high school|high school.{0,25}(graduat|completion)', 'high_school_grad'),
+    (r'high ?school (name|attended)|name of (your )?high school|^high school$|^secondary school( name)?$', 'high_school_name'),
+    (r'(may|can) (we|\w+) contact (your )?(current|most recent|past|previous|former)\b.{0,25}employers?|contact (your )?(current|past|previous|former) employers?', 'contact_employer'),
+    (r'(current|your) (job |career |seniority )?level\b|^job level|^seniority level|^career level', 'job_level'),
+    (r'outside (work|employment|activit|business)|advisory (disclosure|role|position|board)', 'outside_work'),
+    (r'(been )?(terminated|dismissed|fired|discharged)\b|asked to resign', 'terminated'),
+    (r'disciplined by (a|any) regulat|regulatory (authority|body|agency).{0,60}(disciplin|sanction|suspend)', 'regulatory_discipline'),
+    (r'gaps? in (your )?employment|employment (history )?gaps?', 'employment_gaps'),
+    (r'experience (with|in) (financial )?invest', 'investing_experience'),
+    (r'(external )?customers? or clients? in a technical|(client|customer)[- ]facing', 'customer_facing'),
+    (r'career fair|talent connect', 'career_fair'),
+    (r'whatsapp', 'whatsapp_optin'),
+    (r'first[- ]generation (professional|college|student)', 'first_gen_professional'),
+    (r'^(oncology research|immune (&|and) inflammatory|cardiovascular)', 'research_area_experience'),
+    (r'hands-on in production', 'production_tools'),
+    (r'programming language.{0,30}(for|during) (your |the )?interview|interview.{0,40}programming language', 'interview_language'),
+    (r'programming languages? (you are|you.re|are you) proficient|proficient in.{0,30}programming language', 'proficient_languages'),
+    (r'ideal work location|preferred work (location|arrangement)|^preferred location', 'ideal_work_location'),
+    (r'\?\s*if not,? (are you )?(willing|open) to relocate', 'relocate_combo'),
     (r'^city\b', 'city'),
     (r'^county\b|county of residence', 'county'),
     (r'zip|postal', 'zip'),
-    (r'^state\b|province', 'state'),
+    (r'(select|choose) the (location|state) you (intend|plan|will) to work from|location you (intend|plan) to work from', 'state'),
+    (r'^(?!.*\bcity\b)(state\b|.*province|.*state (in which|where) you (reside|live)|.*state of residence|.*which state do you (live|reside))', 'state'),
     (r'^country\b', 'country'),
     (r'^(current )?location|where are you (currently )?(located|based)|city.*state', 'current_location'),
+    # Oct 19: Gallup "Do you currently have temporary work authorization (F-1, OPT, CPT, H-1B...)" was answered Yes by the
+    # general work-authorization rule below -> its own rule first
+    (r'temporary (work )?authori[sz]ation|currently (have|hold|on) (a |an )?(temporary|f-1|opt|cpt|j-1|tn|h-1b)\b', 'temporary_work_auth'),
     (r'(legally )?authori[sz]ed to work|eligible to work|right to work|work authori[sz]ation', 'authorized_to_work'),
     (r'sponsor', 'needs_sponsorship'),
     (r'^text message updates \(sms\)$', 'sms_updates_exact'),
@@ -38,6 +67,9 @@ KEYED = [
     (r'relocat|willing to work (from|at|in) (the |our )?(required|stated|listed|job|office)? ?location|work from the (required|office) location', 'willing_to_relocate'),
     (HOME_RX, 'lives_in_home_area'),
     (r'(do|are) you (currently )?(live|living|reside|residing|located|based) (in|near|within) (the )?.{0,60}(area|region|metro|city|state)', 'lives_in_other_area'),
+    # Oct 20 AKASA: "are you currently located in or within commuting distance of the office hub" was answered Yes by
+    # the hybrid/commute rule below -> where he LIVES is a fact (No unless HOME_RX above matched his area)
+    (r'^(?!.*(willing|able|open) to relocate)(?!.*\bor relocat).*(live|living|located|reside|residing|based)\b.{0,40}commut', 'lives_in_other_area'),
     (r'in[- ]person|on-?site|in (the |our )?office|at (the |our )?[\w ]{0,30}office|hybrid|commut|days (a|per) week', 'onsite_ok'),
     (r'(18|eighteen) years|of legal age|at least 18', 'over_18'),
     (r'drug (screen|test)|background (check|screen)|pre-?employment screening', 'background_check_ok'),
@@ -47,19 +79,28 @@ KEYED = [
     (r'(ever been )?(convicted|felony)|criminal (record|conviction|offen)', 'criminal_record'),
     (r'(previously|ever|currently)( been)?( \w+)? (employed|worked) (by|for|at|with)|former (employee|worker)|worked (here|for us) before|(worked|work|working) as an? (contractor|consultant|temp)|contractor (at|for|with)', 'worked_here_before'),
     (r'notice period', 'notice_period'),
-    (r'start date|available to start|earliest|when can you start|start working|date (you are |you.re )?available', 'start_date'),
+    (r'^start date year$', 'edu_start_year'),
+    (r'^(end|graduation) date$', 'graduation_date'),
+    (r'^end date month$', 'edu_end_month'),
+    (r'^end date year$', 'edu_end_year'),
+    (r'^start date month$', 'edu_start_month'),
+    (r'start date(?! (month|year)$)|available to start|earliest|when can you start|start working|date (you are |you.re )?available', 'start_date'),
     (r'compensation expectations? align|align with (our|the) (posted )?(range|pay)|comfortable with (the|this) (pay|salary) range', 'comp_range_ok'),
+    (r'hourly (rate|pay|wage)|per hour|expected hourly', 'hourly_rate'),
     (r'salary|compensation|pay expectation|rate of pay|desired pay|pay rate|hourly rate|expected pay|desired wage', 'salary'),
-    (r'how did you (hear|find|learn)|source|referr(al|ed) source|where did you', 'how_heard'),
+    (r'how did you (hear|find|learn|discover)|source|referr(al|ed) source|where did you', 'how_heard'),
     (r'(have|hold|completed?|earned|obtained).{0,40}degree.{0,40}(or|and/or)\b.{0,25}(pursuing|working towards|enrolled)|(pursuing|expect(ed|ing)? to (complete|receive|earn)).{0,40}degree', 'degree_completed_or_pursuing'),
     (r'^(do|did) you (have|hold|possess) an? (college|university|bachelor.?s?|undergraduate|4-year|four-year)? ?degree|^have you (completed|earned|obtained|received) (an?|your) (college |university |bachelor.?s? |undergraduate )?degree', 'degree_completed'),
+    (r'highest (completed|level of completed|finished) (degree|education)|highest degree (completed|earned|obtained)|highest (level of )?education (completed|attained)', 'highest_completed_degree'),
     (r'high school (diploma|equivalen)|\bged\b|secondary school (diploma|certificate)', 'high_school_diploma'),
     (r'school|university|college|institution', 'school'),
     (r'will you be (actively )?enrolled|enrolled .{0,60}(during|entire|duration|after the internship)|return(ing)? to school|at least one (semester|term) remaining', 'enrolled_after_internship'),
-    (r'currently enrolled|are you (a )?(current )?student|enrolled in', 'currently_enrolled'),
+    (r'currently enrolled|are you (a )?(current )?student|enrolled in|still (a )?student', 'currently_enrolled'),
     (r'^(highest )?(level of )?degree\b|degree (type|level|earned|obtained|pursuing)|^education level', 'degree_level'),
     (r'discipline|major|field of study', 'major'),
     (r'gpa', 'gpa'),
+    (r'graduation month|month of graduation', 'graduation_month'),
+    (r'graduation year|year of graduation', 'graduation_year'),
     (r'graduation (date|year)|expected graduation|grad(uation)? date|when do you graduate', 'graduation_date'),
     (r'current (company|employer)|most recent (company|employer)', 'current_employer'),
     (r'current (job )?title|most recent title', 'current_title'),
@@ -68,28 +109,34 @@ KEYED = [
     (r'race|ethnicit', 'race'),
     (r'veteran', 'veteran'),
     (r'^\s*if (yes|so)\b,? (please )?(provide|give|explain|describe|list|specify|share)', 'if_yes_details'),
-    (r'(current|your) (immigration|visa|residency|work authori[sz]ation) status|status in the u\.?s', 'immigration_status'),
+    (r'(current|your) (immigration|visa|residency|work authori[sz]ation) status|status in the u\.?s|^citizenship status', 'immigration_status'),
     (r'(active|pending) (immigration|visa|green card) (case|petition|application)|immigration case', 'pending_immigration_case'),
+    (r'(u\.?s\.?|united states) citizen,? or (a )?(lawful |legal )?permanent (resident|citizen)|citizen or (green card|permanent resident)', 'citizen_or_lpr'),
+    (r'^(are you )?(a )?(u\.?s\.?|united states) citizen\b(?!.{0,6}\bor\b)', 'us_citizen'),
+    (r'deemed export', 'deemed_export'),
+    (r'\b(cuba|iran|north korea|syria|crimea)\b', 'sanctioned_country'),
+    (r'(hold|have|possess)\b.{0,30}\b(active|current)\b.{0,30}clearance|^active (security )?clearance', 'active_clearance'),
     (r'u\.?s\.? person', 'us_person'),
-    (r'country of citizenship|citizenship country|what is your citizenship|which countr(y|ies).{0,20}citizen', 'citizenship_country'),
+    (r'what is your nationality|^nationality|country of citizenship|citizenship country|what is your citizenship|which countr(y|ies).{0,20}citizen', 'citizenship_country'),
     (r'willing(ness)? to travel|travel (requirement|up to|percentage)|how much.{0,20}travel', 'travel'),
     (r'driver.?s? licen[cs]e', 'drivers_license'),
     (r'(require|need).{0,40}(mode of )?transportation|reliable transportation', 'needs_transportation'),
     (r'(require|need).{0,40}(temporary )?housing|relocation assistance', 'needs_housing'),
     (r'overtime|weekends?|on-?call|shift work|night shifts?', 'overtime_ok'),
     (r'(other|current) (work|job)s? .{0,60}(maintain|keep|continue)|work engagements', 'other_jobs'),
-    (r'hourly (rate|pay) expectation|expected hourly', 'hourly_rate'),
-    (r'\b(sat|act|gre) (score|total)', 'test_scores'),
+    (r'\b(sat|act|gre) (score|total)|(score|result) on (the )?(sat|act|gre)\b|standardized test', 'test_scores'),
     (r'military (service|status)|served in the (armed forces|military)', 'military_service'),
     (r'(were you|have you been) referred|employee referral|referred by', 'referred'),
-    (r'\bai\b.{0,60}(note|transcri|record)|(note|transcri).{0,40}\bai\b', 'ai_notetaker_consent'),
+    (r'interview transcri|transcription (tool|of (the |your )?interview)|^transcription$|'
+     r'\bai\b.{0,60}(note|transcri|record)|(note|transcri).{0,40}\bai\b', 'ai_notetaker_consent'),
     (r'\bage (of )?18|18 (years|or over|or older)|over the age of 18|legal working age', 'age_18_alt'),
     (r'non-?compet|non-?solicit|non-?disclosure.{0,80}(restrict|preclude)|agreement.{0,80}(restrict|preclude|prevent)|restrictions? on compet', 'non_compete_alt'),
     (r'commitments? to (another|other) (employer|organi[sz]ation)|interfere with .{0,40}employment', 'other_commitments'),
     (r'(ever|previously) (worked|been employed) (at|for|with)|worked (at|for) .{0,60}(affiliates?|subsidiar)|former employee of', 'worked_at_affiliate'),
     (r'(ever|previously) applied (for work )?(at|to|with)|applied (to|at) .{0,30} before', 'applied_before'),
     (r'valid (work|residency|residence) permit|legally (permitted|allowed) to work|work permit', 'work_permit'),
-    (r'government or public institution employment|worked for (a|the) (federal|state|local) government|public sector employment', 'government_employment'),
+    (r'(federal|foreign) government.{0,60}(united nations )?employee|united nations employee|'
+     r'government or public institution employment|worked for (a|the) (federal|state|local) government|public sector employment', 'government_employment'),
     (r'licen[cs]es?.{0,60}(withdrawn|revoked|suspended)|disciplinary action', 'license_revoked'),
     (r'(list|please list).{0,40}(licen[cs]es|certifications)', 'certifications'),
     (r'(what|which) degree are you (currently )?(studying|pursuing)|current(ly)? (degree|program) of study', 'current_degree'),
@@ -115,7 +162,13 @@ GOV_ID = re.compile(r'social security|\bssn\b|last (4|four) (digits )?of (your )
                     r'government[- ]issued (photo )?id|upload .{0,30}(photo )?(id|identification) (card|document)|'
                     r'identity verification|verify your identity|id verification|tax (id|identification) number|\bitin\b|alien (registration )?number|'
                     r'green card number|\ba-number\b|uscis number', re.I)
-CONSENT = re.compile(r'i (agree|acknowledge|certify|consent|attest|understand)|terms|privacy|policy|consent|attest|certif|arbitrat|agreement|acknowledg|\be-?sign|confidentialit|j.ai lu|accepte|aviso de privacidad|acepto', re.I)   # +FR/ES (Unity Oct 13)   # \b: 'Object Oriented Design' is not e-sign
+# a form question that makes it a clearance role (CHAOS / Bespoke Oct 13): he can't hold a clearance -> the row is Closed
+CLEARANCE_ROLE = re.compile(r'(obtain|maintain|eligible (for|to obtain)|able to obtain|qualify for).{0,40}(security )?clearance|polygraph|poly(graph)? type|'
+                            r'ts/sci|top secret|\bitar\b', re.I)
+NON_US_ROLE = re.compile(r'(eligible|authori[sz]ed|entitled|right|permit(ted)?) to (live and )?work in (canada|the uk|the united kingdom|ireland|germany|'
+                         r'india|australia|the eu|europe|the netherlands|france|spain|poland|singapore|israel|mexico|brazil)|uk right to work|'
+                         r'(canadian|uk|british|eu) (work permit|citizen(ship)? or)', re.I)
+CONSENT = re.compile(r'i (agree|acknowledge|certify|consent|attest|understand|confirm|have read)|code of conduct|terms|privacy|policy|consent|attest|certif|arbitrat|agreement|acknowledg|\be-?sign|confidentialit|j.ai lu|accepte|aviso de privacidad|acepto', re.I)   # +FR/ES (Unity Oct 13)   # \b: 'Object Oriented Design' is not e-sign
 
 LABEL_JS = r"""
 () => {
@@ -169,6 +222,23 @@ LABEL_JS = r"""
       (radios[g] = radios[g] || {kind: 'radio', label: q, required: req || /\*\s*$/.test(q), options: []}).options.push({n, text: labelOf(el), checked: el.checked});
       continue;
     }
+    // checkbox groups = one question. Greenhouse: <fieldset class="checkbox"><legend> + inputs named "question_N[]";
+    // Ashby: <fieldset class="...checkbox-group"> + a question-title label, inputs named after their option text (so
+    // names can't be used there: "Other" repeats across questions)
+    const cg = type === 'checkbox' && (el.closest('fieldset[class*="checkbox-group"], fieldset.checkbox')
+      || (/\[\]$/.test(el.name || '') && document.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(el.name)}"]`).length > 1 && el.closest('fieldset')));
+    if (cg && cg.querySelectorAll('input[type="checkbox"]').length > 1) {
+      // Twilio/Gallup/PMG Oct 13: each option was read as its own required checkbox -> "Careers Website (still empty)" x9
+      const ql = cg.querySelector('legend, [class*="question-title"]');
+      const q = ql ? txt(ql) : '';
+      if (!cg.dataset.jhg) cg.dataset.jhg = String(Object.keys(radios).length + 1);
+      const g = 'cb:' + cg.dataset.jhg;
+      el.setAttribute('data-jh', String(++n));
+      (radios[g] = radios[g] || {kind: 'checks', type: 'checkbox-group', label: q, options: [],
+        required: req || cg.getAttribute('aria-required') === 'true' || /\*\s*$/.test(q) || !!(ql && /required/i.test(ql.className))})
+        .options.push({n, text: labelOf(el), checked: el.checked});
+      continue;
+    }
     el.setAttribute('data-jh', String(++n));
     const d = {n, kind: el.getAttribute('role') === 'combobox' ? 'combobox' : el.tagName.toLowerCase(), type,
                label: labelOf(el), required: !!req, value: el.value || '', id: el.id || '', name: el.name || '',
@@ -207,7 +277,7 @@ LABEL_JS = r"""
 """
 
 
-LONG_OK = re.compile(r'essential functions|issued an offer|ownership|non-?compet|preclude|restrict|commitments|worked at|worked for|applied for work|work permit|residency permit|public institution|licen[cs]e|location preference|languages|immigration|visa status|u\.?s\.? person|citizenship|travel|transportation|housing|criminal|convicted|\bai\b|government official|ability to influence|conflict of interest|text messag|\bsms\b|sponsor|authori[sz]ed to work|eligible to work|relocat|required location|veteran|sexual orientation|disabilit|hispanic|race|ethnicit|gender|'
+LONG_OK = re.compile(r'supports remote work|offers? or deadlines|gaps? in (your )?employment|if not,? (are you )?(willing|open) to relocate|intend to work from|plan to work from|nationality|cuba|iran|north korea|syria|crimea|deemed export|clearance|citizen|united nations|essential functions|issued an offer|ownership|non-?compet|preclude|restrict|commitments|worked at|worked for|applied for work|work permit|residency permit|public institution|licen[cs]e|location preference|languages|immigration|visa status|u\.?s\.? person|citizenship|travel|transportation|housing|criminal|convicted|\bai\b|government official|ability to influence|conflict of interest|text messag|\bsms\b|sponsor|authori[sz]ed to work|eligible to work|relocat|required location|veteran|sexual orientation|disabilit|hispanic|race|ethnicit|gender|'
                      r'in[- ]person|on-?site|hybrid|(18|eighteen) years|previously|former employee|start date|earliest|'
                      r'drug|background (check|screen)|pre-?employment|family|relative|non-?compete|restriction|enrolled|semester', re.I)
 
@@ -246,6 +316,12 @@ def options_of(f, loc):
                      '[class*="select-item-option"]:visible, [class*="dropdown"] li:visible, [class*="menu"] [class*="option"]:visible')
 
 
+# owner, Oct 20 2026: may type his full name where a form asks to show agreement that way (Rubrik NDA). Not a signature
+# field, initials or date: NEVER above still blocks 'signature' / 'sign here'.
+TYPED_NAME = re.compile(r'(indicate|confirm|signify|show) (your )?(agreement|acceptance|consent).{0,40}typing your (full )?(legal )?name|'
+                        r'typ(e|ing) your (full )?(legal )?name.{0,60}(agree|accept|acknowledg|consent)', re.I)
+
+
 def consent_on():
     """AUTO_CONSENT=1 in .env (authorized by the owner, Oct 12 2026): accept terms/privacy/arbitration items."""
     import os
@@ -253,12 +329,81 @@ def consent_on():
 
 
 def rule_for(label):
-    l = (label or '').strip().lower().rstrip('*').strip()
+    l = re.sub(r'\s*\((required|optional)\)\s*$', '', (label or '').strip().lower().rstrip('*').strip()).rstrip('*').strip()
     if len(l) > 120 and not LONG_OK.search(l):
         return None, None   # long essay-style labels: keyword rules misfire (e.g. "GitHub PRs" essay) -> answer step
     for rx, val, opt in RULES:
         if re.search(rx, l): return val, opt
     return None, None
+
+
+def amount(val, hourly=False):
+    """First money amount in an answer: '$110k–$130k, negotiable' -> 110000; '$30–$45 per hour' -> 30."""
+    m = re.search(r'\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k\b)?', str(val or ''), re.I)
+    if not m: return None
+    n = float(m.group(1).replace(',', '')) * (1000 if m.group(2) else 1)
+    return n
+
+
+def pick_range(options, amt):
+    """Option whose money range holds `amt` ('$40,000 - $49,999', '$100,000+', 'Under $50k', '$110k-$130k')."""
+    if amt is None: return None
+    for o in options:
+        t = (o['text'] if isinstance(o, dict) else o).replace(',', '')
+        nums = [float(a) * (1000 if k else 1) for a, k in re.findall(r'(\d+(?:\.\d+)?)\s*(k\b)?', t, re.I)]
+        if not nums: continue
+        if len(nums) >= 2: lo, hi = nums[0], nums[1]
+        elif re.search(r'\+|or more|and (above|up)|above|over|more than', t, re.I): lo, hi = nums[0], float('inf')
+        elif re.search(r'under|less than|below|up to', t, re.I): lo, hi = 0, nums[0]
+        else: continue
+        if lo <= amt <= hi: return o
+    return None
+
+
+FALLBACK = [   # when the Answer Bank value matches no option (owner, Oct 19)
+    (r'work authori[sz]ation|authori[sz]ed to work', [r'authori[sz]ed to work (for any|in the|without)|do not (require|need) (visa )?sponsor|without (visa )?sponsor']),
+    (r'(current|former).{0,20}employee|(ever|previously) (worked|been employed)|worked (for|at) .{0,30} before', [r'^never\b|have never|^no\b|not (a )?(current|former)']),
+    (r'\bstate\b|region in which you', [r'another state|other (us |u\.s\. )?state|^other\b']),
+    (r'how did you (hear|find|learn)|where did you (hear|find|see)|source', [r'linkedin', r'job ?board|online|website|career', r'^other\b']),
+    (r'clearance', [r'^none\b|^no\b|no (active )?clearance|not applicable|^n/?a\b', r'do not wish|prefer not|decline']),
+    (r'\b(sat|act|gre|gmat|lsat)\b|standardized test', [r"did ?n.?o?t take|not taken|have not taken|do not recall|^n/?a\b|not applicable|^none\b"]),
+]
+
+
+TYPE_FALLBACK = [(['LinkedIn', 'Website', 'Career', 'Job board', 'Online', 'Other'], r'how did you (hear|find|learn|discover)|where did you (hear|find|see)')]
+
+
+def choose(label, options, opt_rx, val):
+    """pick() by the Answer Bank; then a money range for salary/rate questions; then FALLBACK option patterns."""
+    l = re.sub(r'[*:\s]+$', '', (label or '').lower()).strip()
+    texts0 = [(x['text'] if isinstance(x, dict) else x).strip() for x in options]
+    if re.match(r'^(start|end|graduation) date$', l) and options:   # paired Month / Year selects of a school entry (Amplify)
+        start = l.startswith('start')
+        if sum(t.lower()[:3] in MONTHS for t in texts0) >= 6:
+            want = (P.answer('edu_start_month') or ['September'])[0] if start else (P.answer('edu_end_month') or ['December'])[0]
+            o = pick(options, r'^' + re.escape(str(want)[:3]), None)
+            if o: return o
+        if sum(bool(re.match(r'^(19|20)\d\d$', t)) for t in texts0) >= 4:
+            want = (P.answer('edu_start_year') or ['2023'])[0] if start else (P.answer('edu_end_year') or ['2026'])[0]
+            o = pick(options, r'^' + re.escape(str(want)) + r'$', None)
+            if o: return o
+    o = pick(options, opt_rx, val) if (val or opt_rx) else None
+    if o or not options: return o
+    if re.search(r'salary|compensation|pay|rate|wage', l):
+        key = 'hourly_rate' if re.search(r'hour', l) else 'salary'
+        a = P.answer(key)
+        o = pick_range(options, amount(a[0]) if a else None)
+        if o: return o
+    texts = [(x['text'] if isinstance(x, dict) else x).strip() for x in options]
+    real = [t for t in texts if t and not re.match(r'^(select|choose|please select)\b|^-+$', t, re.I)]
+    if consent_on() and len(real) == 1 and AGREE.search(real[0]):   # single "I acknowledge the above policies" (Waymo)
+        return options[texts.index(real[0])]
+    for rx, prefs in FALLBACK:
+        if re.search(rx, l):
+            for pr in prefs:
+                o = pick(options, pr, None)
+                if o: return o
+    return None
 
 
 def pick(options, opt_rx, val):
@@ -297,6 +442,39 @@ def same_field(f, d):
     return norm(now) == norm(d.get('label'))
 
 
+APPLIED_HERE = [False]   # our own data/submissions.jsonl has an application to this company (set by fill())
+APPLIED_RX = re.compile(r'(completed|submitted) an application|previously applied|applied (to|at|for|with) .{0,60}(before|previously|in the (past|last))|'
+                        r'(ever|previously) applied', re.I)
+FORCE = set()   # labels to re-enter even though the DOM shows a value (Ashby "Missing entry for required field: Email")
+
+
+def _forced(label):
+    n = re.sub(r'\W+', '', (label or '').lower())[:60]
+    return bool(n) and any(m and (m in n or n in m) for m in FORCE)
+
+
+def tick(f, loc):
+    """Tick a checkbox so the app's state sees it: check(), then a click on its <label> if it didn't stick
+    (Wikimedia "I certify..." Oct 20 stayed empty after a forced check on a visually hidden input)."""
+    # a real click on the <label> first: Ashby keeps a forced check() in the DOM only, and the server then says
+    # "Missing entry" (Commure Oct 20); force-check only when there is no clickable label
+    try:
+        if loc.is_checked(): return True
+        i = loc.get_attribute('id')
+        lab = f.locator(f'label[for="{i}"]').first if i else loc.locator('xpath=ancestor::label[1]')
+        if lab.count() and lab.is_visible():
+            lab.click(timeout=4000)
+            if loc.is_checked(): return True
+    except Exception:
+        pass
+    try: loc.check(force=True)
+    except Exception:
+        try: loc.click(force=True)
+        except Exception: pass
+    try: return loc.is_checked()
+    except Exception: return False
+
+
 def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
     f = page_or_frame
     fields = f.evaluate(LABEL_JS)
@@ -306,12 +484,37 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
         label = d.get('label') or ''
         if GOV_ID.search(label):   # Oct 13 (owner): a form asking for any government ID -> cancel the application
             unknown.append('GOV-ID asked: ' + label[:120]); continue
+        if CLEARANCE_ROLE.search(label):   # owner rule: clearance/ITAR roles are blocked -> apply_prep closes the row
+            unknown.append('INELIGIBLE (clearance role): ' + label[:120]); continue
+        if NON_US_ROLE.search(label):   # owner rule: non-US roles are blocked (Solink "eligible to work in Canada", Oct 20)
+            unknown.append('INELIGIBLE (non-US role): ' + label[:120]); continue
         if NEVER.search(label):
             if d.get('required'): unknown.append(label)
             continue
         try:
+            if d['kind'] == 'checks':   # checkbox group = one question: tick ONE option
+                if any(o.get('checked') for o in d['options']) and not _forced(label): continue
+                o = None
+                if CONSENT.search(label) and consent_on():
+                    o = next((x for x in d['options'] if AGREE.search(x['text'])), None) or (d['options'][0] if len(d['options']) == 1 else None)
+                if not o:
+                    val, opt = rule_for(label)
+                    o = choose(label, d['options'], opt, val)
+                if o:
+                    lo = f.locator(f'[data-jh="{o["n"]}"]').first
+                    if _forced(label):
+                        try: lo.evaluate("e => { e.checked = false; }")
+                        except Exception: pass
+                    tick(f, lo)
+                    if opt and re.search(r'select all|all that apply|mark all', label, re.I):   # IMC / n8n multi-select (Oct 20)
+                        for x in d['options']:
+                            if x is not o and not x.get('checked') and re.search(opt, x['text'].strip(), re.I):
+                                tick(f, f.locator(f'[data-jh="{x["n"]}"]').first)
+                    done.append(label)
+                elif d.get('required'): unknown.append(label); pend.append(d)
+                continue
             if d['kind'] in ('radio', 'buttons'):
-                if any(o.get('checked') for o in d['options']): continue
+                if any(o.get('checked') for o in d['options']) and not _forced(label): continue
                 if CONSENT.search(label) and consent_on():
                     o = next((x for x in d['options'] if AGREE.search(x['text'])), None)
                     if o:
@@ -319,7 +522,11 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                         lo.check(force=True) if d['kind'] == 'radio' else lo.click()
                         done.append(label + ' (consent)'); continue
                 val, opt = rule_for(label)
-                o = pick(d['options'], opt, val) if (val or opt) else None
+                if APPLIED_HERE[0] and APPLIED_RX.search(label): val, opt = 'Yes', r'^yes\b'
+                o = choose(label, d['options'], opt, val)
+                if o and _forced(label) and d['kind'] == 'radio':   # React ignores a click on an already-checked radio
+                    try: f.locator(f'[data-jh="{o["n"]}"]').first.evaluate("e => { e.checked = false; }")
+                    except Exception: pass
                 if o: f.locator(f'[data-jh="{o["n"]}"]').first.check(force=True) if d['kind'] == 'radio' \
                     else f.locator(f'[data-jh="{o["n"]}"]').first.click(); done.append(label)
                 elif d.get('required'): unknown.append(label); pend.append(d)
@@ -338,12 +545,16 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
             if d['type'] == 'checkbox':
                 if CONSENT.search(label):
                     if consent_on():
-                        try: loc.check(force=True)
-                        except Exception: loc.click(force=True)
+                        tick(f, loc)
                         done.append(label + ' (consent)')
                     elif d.get('required'): unknown.append(label + ' (consent box — yours to tick)')
+                    continue
+                val, opt = rule_for(label)   # a lone Yes-checkbox question ("Still Student?" Amplify Oct 19)
+                if val and re.match(r'^yes\b', str(val), re.I) and (d.get('required') or re.search(r'\?\s*\*?$', label)):
+                    tick(f, loc)
+                    done.append(label)
                 continue
-            if d.get('value') and d['kind'] != 'select': continue        # already filled (e.g. by resume parse)
+            if d.get('value') and d['kind'] != 'select' and not _forced(label): continue        # already filled (e.g. by resume parse)
             if CONSENT.search(label) and not (d['kind'] == 'input' and re.search(r'number|phone', label, re.I)):
                 if consent_on() and d['kind'] == 'select':
                     o = next((x for x in d.get('options') or [] if AGREE.search(x)), None)
@@ -359,24 +570,31 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                 if consent_on() and d['kind'] in ('input', 'textarea') and len(label) > 150 \
                         and not re.search(r'\b(full |legal )?name\b|initials|signature|sign here|\bdate\b|type (your|the)', label[-250:], re.I):
                     loc.fill('I acknowledge'); done.append(label[:60] + '… (acknowledged)'); continue
+                if consent_on() and d['kind'] in ('input', 'textarea') and TYPED_NAME.search(label) and P.answer('typed_name_agreement'):
+                    loc.fill(P.answer('typed_name_agreement')[0]); done.append(label[:60] + '… (typed name)'); continue
                 if d.get('required'): unknown.append(label + ' (legal/consent — yours)')
                 continue
             if re.search(r'cover letter', label, re.I) and d['kind'] == 'textarea':
                 loc.fill(cover_text); done.append('Cover letter'); continue
             val, opt = rule_for(label)
+            if APPLIED_HERE[0] and APPLIED_RX.search(label):   # Gallup Oct 20: we applied there earlier tonight -> truthful Yes
+                val, opt = 'Yes', r'^yes\b'
+            if val is None and opt is None and d['kind'] == 'select':
+                o = choose(label, d.get('options') or [], None, None)   # FALLBACK patterns / single acknowledgement option
+                if o: loc.select_option(label=o); done.append(label); continue
             if val is None and opt is None:
                 if d.get('required'): unknown.append(label); pend.append(d)
                 elif d['kind'] == 'textarea' and ESSAY.search(label): pend.append(d)   # optional essays: answer like a strong applicant
                 continue
             if d['kind'] == 'select':
-                o = pick(d['options'], opt, val)
+                o = choose(label, d['options'], opt, val)
                 if o: loc.select_option(label=o); done.append(label)
                 elif d.get('required'): unknown.append(label); pend.append(d)
             elif d['kind'] == 'combobox':
                 open_combo(f, loc)
                 opts = options_of(f, loc)
                 texts = [t.strip() for t in opts.all_inner_texts()]
-                o = pick(texts, opt, val) if texts else None
+                o = choose(label, texts, opt, val) if texts else None
                 if not o:  # long lists (country, school): type to search; async lists need time to load
                     q = f'{P.CITY}, {P.STATE}' if re.search(LOCATION_RX, label, re.I) else val.split(' (')[0][:30]   # place pickers want the state name
                     loc.press_sequentially(q, delay=20)
@@ -385,6 +603,18 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                         opts = options_of(f, loc); texts = [t.strip() for t in opts.all_inner_texts()]   # list type can change once results load
                         o = pick(texts, opt, val)
                         if o: break
+                if not o:   # type-to-search lists (Ashby "How did you hear": "Start typing...") -> short search words
+                    for q, rx in TYPE_FALLBACK:
+                        if not re.search(rx, label, re.I): continue
+                        for word in q:
+                            loc.fill(''); loc.press_sequentially(word, delay=20)
+                            for _ in range(4):
+                                f.wait_for_timeout(600)
+                                opts = options_of(f, loc); texts = [t.strip() for t in opts.all_inner_texts()]
+                                o = pick(texts, re.escape(word), None) or (texts[0] if len(texts) == 1 and word == 'Other' else None)
+                                if o: break
+                            if o: break
+                        break
                 if not o and re.search(r'school|university|college|institution', label, re.I) and not re.search(r'high school', label, re.I):
                     # school not in the site's list (Hasbro Oct 12: the school was missing) -> 'Other'
                     loc.fill(''); loc.press_sequentially('Other', delay=20)
@@ -427,7 +657,11 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                     if val is None:
                         if d.get('required'): unknown.append(label)
                         continue
-                loc.fill(val); done.append(label)
+                if _forced(label):   # retype so React sees real key events
+                    loc.fill(''); loc.press_sequentially(str(val), delay=15)
+                else:
+                    loc.fill(val)
+                done.append(label)
         except Exception as e:
             if d.get('required'): unknown.append(f'{label} (error: {str(e)[:60]})')
     return done, unknown
@@ -452,6 +686,9 @@ def iso_date(val):
 def numeric(val, label):
     """The number a digits-only box wants from a text answer: 'December 30, 2026' -> year 2026 / month 12 / day 30."""
     v, lab = str(val), (label or '').lower()
+    if re.search(r'salary|compensation|pay|rate|wage', lab):
+        a = amount(v)
+        return str(int(a)) if a is not None else None
     years = re.findall(r'\b(19|20)\d{2}\b', v); full_years = re.findall(r'\b(?:19|20)\d{2}\b', v)
     mon = next((n for k, n in MONTHS.items() if re.search(rf'\b{k}', v.lower())), None)
     if 'year' in lab and full_years: return full_years[0]
@@ -479,6 +716,11 @@ def fill(frame, job):
     Rules first (0 tokens); then ONE batched LLM call answers the remaining questions truthfully (answers.py);
     whatever it cannot answer from his facts stays in `unknown` -> NEEDS YOU."""
     pending = []
+    try:
+        import apply_prep
+        APPLIED_HERE[0] = bool(job.get('company')) and apply_prep.company_submitted(job.get('company'))
+    except Exception:
+        APPLIED_HERE[0] = False
     done, unknown = fill_files(frame, job.get('pdf'), job.get('cover_txt'), job.get('cover_text') or '', pending)
     if pending and not job.get('no_llm'):
         try:
@@ -505,7 +747,7 @@ def log_form(frame, job, done, unknown, source='fill'):
         rec = {'at': dt.datetime.now().isoformat(timespec='seconds'), 'source': source, 'url': frame.url,
                'company': job.get('company'), 'title': job.get('title'),
                'fields': [{'label': (d.get('label') or '')[:400], 'kind': d.get('kind'), 'type': d.get('type'),
-                           'required': d.get('required'), 'value': d.get('value') if d['kind'] not in ('radio', 'buttons')
+                           'required': d.get('required'), 'value': d.get('value') if d['kind'] not in ('radio', 'buttons', 'checks')
                            else [o.get('text') for o in d.get('options', []) if o.get('checked')],
                            'options': [o.get('text') if isinstance(o, dict) else o for o in (d.get('options') or [])][:30]}
                           for d in fields if d.get('type') not in ('file', 'password')],
@@ -526,7 +768,7 @@ def still_empty(frame):
         if not d.get('required') or d.get('type') == 'file': continue
         lab = (d.get('label') or '').strip()
         if not lab: continue
-        if d['kind'] in ('radio', 'buttons'):
+        if d['kind'] in ('radio', 'buttons', 'checks'):
             if not any(o.get('checked') for o in d.get('options', [])): out.append(lab)
         elif d.get('type') == 'checkbox':
             try:

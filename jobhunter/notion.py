@@ -83,7 +83,7 @@ def _rt(s):
 
 
 def props(Company=None, Position=None, Status=None, Notes=None, Link=None, Location=None, DatePosted=None,
-          DateApplied=None, Outreach=None, Recruiters=None, LinkedIn=None, LastContact=None):
+          DateApplied=None, Outreach=None, Recruiters=None, LinkedIn=None, LastContact=None, ApplyLink=None):
     p = {}
     if Company is not None: p['Company'] = {'title': _rt(Company)}
     for k, v in (('Position', Position), ('Notes', Notes), ('Location', Location), ('Recruiters', Recruiters)):
@@ -93,6 +93,7 @@ def props(Company=None, Position=None, Status=None, Notes=None, Link=None, Locat
     for k, v in (('Date Posted', DatePosted), ('Date Applied', DateApplied), ('Last Contact', LastContact)):
         if v is not None: p[k] = {'date': {'start': v} if v else None}
     if Link is not None: p['Link'] = {'url': Link or None}
+    if ApplyLink is not None: p['Apply Link'] = {'url': ApplyLink or None}   # where Apply really leads (Oct 20, owner)
     return p
 
 

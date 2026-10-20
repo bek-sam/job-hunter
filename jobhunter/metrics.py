@@ -35,6 +35,7 @@ def summary(days=1):
     now = dt.datetime.now(CT)
     since = now.replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(days=days - 1)
     res, subs = _load('apply_results.jsonl', since), _load('submissions.jsonl', since)
+    res = [r for r in res if r['status'] != 'SKIPPED']   # not on the APPLY_ATS_ONLY list: never attempted
     st = collections.Counter(r['status'] for r in res)
     by_ats = collections.defaultdict(collections.Counter)
     for r in res: by_ats[r.get('ats') or '?'][r['status']] += 1
@@ -49,6 +50,24 @@ def health_line(days=1):
     return (f"HEALTH {dt.datetime.now(CT):%b %d %H:%M} | today: attempted {s['attempted']} | submitted {s['status'].get('SUBMITTED', 0)} "
             f"(log {s['submissions']}) | needs you {s['status'].get('NEEDS YOU', 0)} {dict(s['need'])} | errors {s['status'].get('ERROR', 0)} "
             f"| good-outcome rate {rate} (goal >= 60%)")
+
+
+def stale_alarm(hours=3, every_h=6):
+    """Phone/Mac alert when Apply Prep has not run for `hours` (schedule unloaded, Mac asleep, crash loop) or its
+    good-outcome rate today is under 30% after 10+ attempts. At most one alert per `every_h` hours."""
+    import os, time, notify
+    log, stamp = config.DATA / 'logs' / 'apply_prep.log', config.DATA / 'logs' / '.apply_alarm'
+    if stamp.exists() and time.time() - stamp.stat().st_mtime < every_h * 3600: return
+    msgs = []
+    age = (time.time() - log.stat().st_mtime) / 3600 if log.exists() else 999
+    if age > hours:
+        msgs.append(f'Apply Prep has not run for {age:.0f} h — check `scripts/schedule.sh status` (com.jobhunter.applyprep)')
+    s = summary(1)
+    ok = s['status'].get('SUBMITTED', 0)
+    if s['attempted'] >= 10 and ok * 100 < 30 * s['attempted']:
+        msgs.append(f"Apply success today only {ok}/{s['attempted']} — top reasons {dict(s['need'].most_common(3))}")
+    if msgs:
+        notify.push(' | '.join(msgs), title='Job Hunter — apply alarm'); stamp.touch()
 
 
 if __name__ == '__main__':

@@ -324,7 +324,137 @@
    "I don't wish to answer",
    "don.t wish|decline|prefer not"
   ],
-  "pronouns": "She/her"
+  "pronouns": "She/her",
+  "temporary_work_auth": [
+   "<answer>",
+   "^no\\b"
+  ],
+  "citizen_or_lpr": [
+   "<answer>",
+   "^yes\\b"
+  ],
+  "us_citizen": [
+   "<answer>",
+   "^no\\b"
+  ],
+  "deemed_export": [
+   "<answer>",
+   "^no\\b"
+  ],
+  "sanctioned_country": [
+   "<answer>",
+   "^no\\b|neither|none"
+  ],
+  "active_clearance": [
+   "<answer>",
+   "^none\\b|^no\\b|not applicable|^n/?a\\b|do not|don.t"
+  ],
+  "graduation_month": [
+   "<answer>",
+   "^dec(ember)?\\b"
+  ],
+  "edu_start_year": "<year>",
+  "edu_end_month": [
+   "<answer>",
+   "^dec(ember)?\\b"
+  ],
+  "edu_end_year": "<year>",
+  "graduation_year": [
+   "<year>",
+   "^<year>$"
+  ],
+  "address_line2": "",
+  "edu_start_month": [
+   "<month>",
+   "^<month>"
+  ],
+  "highest_completed_degree": [
+   "<degree>",
+   "<option regex>"
+  ],
+  "city_of_residence": [
+   "<value>",
+   "<option regex>"
+  ],
+  "remote_location": [
+   "<value>",
+   "<option regex>"
+  ],
+  "current_offers": [
+   "<value>",
+   "<option regex>"
+  ],
+  "high_school_name": "<value>",
+  "high_school_grad": [
+   "<value>",
+   "<option regex>"
+  ],
+  "contact_employer": [
+   "<value>",
+   "<option regex>"
+  ],
+  "job_level": [
+   "<value>",
+   "<option regex>"
+  ],
+  "outside_work": [
+   "<value>",
+   "<option regex>"
+  ],
+  "terminated": [
+   "<value>",
+   "<option regex>"
+  ],
+  "regulatory_discipline": [
+   "<value>",
+   "<option regex>"
+  ],
+  "employment_gaps": "<value>",
+  "investing_experience": [
+   "<value>",
+   "<option regex>"
+  ],
+  "customer_facing": [
+   "<value>",
+   "<option regex>"
+  ],
+  "career_fair": [
+   "<value>",
+   "<option regex>"
+  ],
+  "whatsapp_optin": [
+   "<value>",
+   "<option regex>"
+  ],
+  "first_gen_professional": [
+   "<value>",
+   "<option regex>"
+  ],
+  "research_area_experience": [
+   "<value>",
+   "<option regex>"
+  ],
+  "production_tools": [
+   "<value>",
+   "<option regex>"
+  ],
+  "proficient_languages": [
+   "<value>",
+   "<option regex>"
+  ],
+  "interview_language": [
+   "<value>",
+   "<option regex>"
+  ],
+  "ideal_work_location": [
+   "<value>",
+   "<option regex>"
+  ],
+  "relocate_combo": [
+   "<value>",
+   "<option regex>"
+  ],
+  "typed_name_agreement": "<value>"
  },
  "workday_answers": {
   "first_name": "Jane",

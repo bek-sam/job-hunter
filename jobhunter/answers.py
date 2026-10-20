@@ -174,11 +174,11 @@ def resolve(frame, pending, job):
 def _apply(f, d, ans):
     try:
         opts = _options(d)
-        if d['kind'] in ('radio', 'buttons'):
+        if d['kind'] in ('radio', 'buttons', 'checks'):
             o = next((x for x in d['options'] if x['text'].strip().lower() == ans.lower()), None)
             if not o: return False
             loc = f.locator(f'[data-jh="{o["n"]}"]').first
-            loc.check(force=True) if d['kind'] == 'radio' else loc.click()
+            loc.check(force=True) if d['kind'] in ('radio', 'checks') else loc.click()
             return True
         loc = f.locator(f'[data-jh="{d["n"]}"]').first
         if d['kind'] == 'select':
@@ -196,6 +196,10 @@ def _apply(f, d, ans):
             if ans in texts:
                 o.nth(texts.index(ans)).click(); return True
             loc.press('Escape'); return False
+        if (loc.get_attribute('type') or '').lower() == 'number':
+            import formfill
+            ans = formfill.numeric(ans, d.get('label'))
+            if ans is None: return False
         loc.fill(ans); return True
     except Exception:
         return False

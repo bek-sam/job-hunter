@@ -510,8 +510,8 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
     for _ in range(2):   # retry ONLY when the server explicitly refused the form (no application was created)
         if not (rejected and res.get('refill') and not CONFIRM.search(t)): break
         print('Ashby refused the form:', rejected[-1][:4], '-> refill and submit again')
-        rejected.clear()
-        try: res['refill']()
+        missing = list(rejected[-1]); rejected.clear()
+        try: res['refill'](missing)
         except Exception as e: print('refill failed:', str(e)[:100]); break
         page.wait_for_timeout(1500)
         _wd_click(btn)

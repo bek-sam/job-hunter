@@ -39,6 +39,11 @@ SNAP_JS = r"""
     const required = el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label);
     let value = (type === 'checkbox' || type === 'radio') ? (el.checked || el.getAttribute('aria-checked') === 'true')
               : type === 'dropdown' && el.tagName === 'BUTTON' ? txt(el) : (el.value || '');
+    if (!value && (type === 'dropdown' || type === 'search_select')) {   // react-select shows its value in a sibling div
+      const c = el.closest('[class*="select__control"], [class*="-control"], [class*="__control"]');
+      const sv = c && c.querySelector('[class*="single-value"], [class*="singleValue"], [class*="multi-value__label"]');
+      if (sv) value = txt(sv);
+    }
     const f = {id, type, label, required, value: typeof value === 'string' ? value.slice(0, 120) : value};
     if (el.tagName === 'SELECT') f.options = [...el.options].map(o => o.text.trim()).slice(0, 60);
     if (el.getAttribute('aria-invalid') === 'true') f.invalid = true;
@@ -135,6 +140,8 @@ def _do(frame, page, fields, a):
     if op in ('check', 'uncheck'):
         if formfill.CONSENT.search(lab) and not formfill.consent_on(): return 'refused consent (AUTO_CONSENT off)'
         (loc.check if op == 'check' else loc.uncheck)(force=True); return f'{op} {lab[:40]}'
+    if f['type'] in ('dropdown', 'search_select') and f.get('value') and not f.get('invalid'):
+        return f'kept {lab[:30]} (already {str(f["value"])[:20]})'   # re-picking cleared SpaceX dropdowns (Oct 20)
     if op == 'select' or (op == 'fill' and f['type'] == 'search_select'):
         if f['type'] == 'select': loc.select_option(label=val); return f'selected {val[:30]}'
         if f['type'] in ('radio', 'checkbox'): loc.check(force=True); return f'chose {lab[:30]}'

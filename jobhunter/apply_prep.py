@@ -41,10 +41,22 @@ def rows_to_fill():
     for r in fast + now:
         if r['id'] in seen or r.get('Status') in done_states: continue
         if not focus.search(r.get('Link') or ''): continue
+        if ats.ONLY and 'AUTO-SKIP' in (r.get('Notes') or ''): continue   # already found to apply elsewhere
+        if ats.ONLY and not via_allowed(r): continue   # li_resolve found it applies on another system
         if tried.get(r['id'], 0) > cutoff: continue          # back off: tried within the last RETRY_HOURS
         if fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600: continue   # keeps failing: 2x/day
         seen.add(r['id']); out.append(r)
     return out
+
+
+def via_allowed(r):
+    """APPLY_ATS_ONLY: False when the row's resolved Apply Via is a system outside the list (LinkedIn rows only count once
+    li_resolve recorded where they really apply)."""
+    v = (r.get('Apply Via') or '').lower()
+    if 'linkedin.com' in (r.get('Link') or '') and 'APPLY URL:' not in (r.get('Notes') or '') and 'APPLY: LinkedIn Easy Apply' not in (r.get('Notes') or ''):
+        return True   # not resolved yet: open it to find out
+    if not v or v == 'company website': return 'linkedin.com' not in (r.get('Link') or '') or 'APPLY URL:' in (r.get('Notes') or '')
+    return any(x in v for x in ats.ONLY)
 
 
 RETRY_HOURS = float(os.environ.get('RETRY_HOURS', '0.9'))   # while sites are being fixed: retry every hourly run
@@ -95,7 +107,29 @@ def already_submitted(url):
 _DONE_KEYS = None
 
 _CONFIRM_SCHEMA = {'type': 'object', 'required': ['found'], 'properties': {
-    'found': {'type': 'boolean'}, 'subject': {'type': ['string', 'null']}, 'date': {'type': ['string', 'null']}}}
+    'found': {'type': 'boolean'}, 'subject': {'type': ['string', 'null']}, 'date': {'type': ['string', 'null']},
+    'same_role': {'type': ['boolean', 'null']}}}
+
+
+def own_roles(company):
+    """Normalized role titles we submitted to this company (data/submissions.jsonl)."""
+    c = _co(company); out = []
+    try:
+        for l in (config.DATA / 'submissions.jsonl').read_text().splitlines():
+            d = json.loads(l) if l.strip() else {}
+            if _co(d.get('company')) == c: out.append(re.sub(r'\W+', ' ', (d.get('role') or '').lower()).strip())
+    except Exception:
+        pass
+    return out
+
+
+def company_submitted(company):
+    """True if our own submissions log has an application to this company (any role)."""
+    c = _co(company)
+    try:
+        return any(_co(json.loads(l).get('company')) == c for l in (config.DATA / 'submissions.jsonl').read_text().splitlines() if l.strip())
+    except Exception:
+        return False
 
 
 def emailed_confirmation(r):
@@ -114,11 +148,20 @@ def emailed_confirmation(r):
             f"Use search_threads with query: newer_than:60d \"{company}\" (\"thank you for applying\" OR \"thanks for applying\" OR "
             f"\"application received\" OR \"received your application\" OR \"application has been received\"). "
             f"found=true if ANY of the results is an application confirmation from {company} (any role; if it names a role, put "
-            f"it in subject). We are about to apply for \"{role}\".",
+            f"it in subject). We are about to apply for \"{role}\". same_role=true only if a confirmation is for this exact job title "
+            f"(ignore only a location suffix; a different team, specialty or level in the title is a DIFFERENT job), false if every "
+            f"confirmation names a different job, null if none names a job.",
             auth._GMAIL_TOOLS + ['ToolSearch'], dict(_CONFIRM_SCHEMA, title='confirm'), model='haiku', budget_usd=0.06, timeout=180,
             system='Read-only Gmail lookup. Load Gmail tools with ToolSearch (select:<names>). Never send, draft or delete. '
                    'Finish with only the JSON object.')
-        if out.get('found'): return f"possibly by hand — {company} confirmation email {out.get('date') or ''}: {(out.get('subject') or '')[:70]}; check before re-applying"
+        # Oct 20: one confirmation per company blocked every other role there (tonight's own Anthropic submissions
+        # blocked 2 more Anthropic roles) -> only the same role, or a role-less email we can't explain by our own log
+        own = company_submitted(company)
+        subj = re.sub(r'\W+', ' ', (out.get('subject') or '').lower())
+        mine = [x for x in own_roles(company) if x and x in subj and x != re.sub(r'\W+', ' ', role.lower()).strip()]
+        if mine and not re.sub(r'\W+', ' ', role.lower()).strip() in subj: out['same_role'] = False   # our own submission tonight
+        if out.get('found') and (out.get('same_role') or (out.get('same_role') is None and not own)):
+            return f"possibly by hand — {company} confirmation email {out.get('date') or ''}: {(out.get('subject') or '')[:70]}; check before re-applying"
     except Exception as e:
         print('confirmation lookup failed:', str(e)[:120])
     return None
@@ -276,11 +319,64 @@ def thin_ok(res, page):
     return len(done) >= 6
 
 
+LIMITS = config.DATA / 'site_limits.json'
+
+
+def _co(name):
+    return re.sub(r'[^a-z0-9]', '', (name or '').split('(')[0].lower())
+
+
+def company_limited(company, days=90):
+    """Date the company's site said "one application per N days" (ElevenLabs Oct 12-13: 5 rows hit it), if recent."""
+    try: seen = json.loads(LIMITS.read_text()).get(_co(company))
+    except Exception: return None
+    if seen and dt.datetime.fromisoformat(seen) > dt.datetime.now(CT) - dt.timedelta(days=days): return seen[:10]
+    return None
+
+
+def note_limit(company):
+    try: d = json.loads(LIMITS.read_text())
+    except Exception: d = {}
+    d[_co(company)] = dt.datetime.now(CT).isoformat(timespec='seconds')
+    LIMITS.write_text(json.dumps(d, indent=1))
+
+
+def posting_location(page):
+    """The location line a Greenhouse/Ashby posting shows ('London, UK'), or ''."""
+    try:
+        return page.evaluate(r"""() => {
+          const t = s => (s ? (s.innerText || '').replace(/\s+/g, ' ').trim() : '');
+          const gh = document.querySelector('.job__location, .location, [class*="job__location"]');
+          if (gh && t(gh)) return t(gh);
+          for (const h of document.querySelectorAll('h2, h3, dt, [class*="sectionHeading"], [class*="heading"]')) {   // Ashby: "Location" heading + value
+            if (/^location$/i.test(t(h))) { const v = h.nextElementSibling || (h.parentElement && h.parentElement.querySelector('p, dd, span:not(:first-child)')); if (v && t(v)) return t(v); }
+          }
+          return '';
+        }""")[:200]
+    except Exception:
+        return ''
+
+
 def run_one(ctx, r, files, dry):
+    import hunt
+    pos = r.get('Position') or ''
+    if r.get('id') and hunt.non_us_title(pos):   # owner rule: non-US roles are blocked (Speechify UK, Oct 19)
+        res = result('CANCELLED', f'CLOSED – non-US role ({pos[:80]})'); res['ats'] = '?'
+        return res
+    if r.get('id') and hunt.other_school_program(pos):   # program for another university's students only
+        res = result('CANCELLED', f'CLOSED – program for another university\'s students ({pos[:80]})'); res['ats'] = '?'
+        return res
+    seen = company_limited(r.get('Company')) if r.get('id') else None
+    if seen:
+        res = result('NEEDS YOU', f'posting closed for him — site limit: {r.get("Company")} allows one application per 90 days '
+                                  f'(limit shown {seen})'); res['ats'] = '?'
+        return res
+    import li_resolve
+    target = li_resolve.apply_url(r) if 'linkedin.com' in (r.get('Link') or '') else None
     page = ctx.new_page()
     blocked, armed = [], {'on': False}
     if dry: dry_guard(page, blocked)
-    elif GUARD_HOSTS.search(r.get('Link') or ''): dry_guard(page, blocked, armed)
+    elif GUARD_HOSTS.search(target or r.get('Link') or ''): dry_guard(page, blocked, armed)
     try:
         from apply_now import workday_open
         if workday_open(r.get('Link') or '') is False:   # removed Workday job: don't walk into its sign-in wall
@@ -288,7 +384,11 @@ def run_one(ctx, r, files, dry):
             return res
     except Exception:
         pass
-    page.goto(r['Link'], wait_until='domcontentloaded', timeout=60000)
+    if ats.ONLY and 'linkedin' not in ats.ONLY and 'APPLY: LinkedIn Easy Apply' in (r.get('Notes') or ''):
+        res = result('SKIPPED', 'LinkedIn Easy Apply (auto-apply is limited to ' + '/'.join(ats.ONLY) + ')', page=page)
+        res['ats'] = 'linkedin'; res['via'] = 'LinkedIn Easy Apply'
+        return res
+    page.goto(target or r['Link'], wait_until='domcontentloaded', timeout=60000)   # resolved company URL: no LinkedIn hop
     page.wait_for_timeout(2500)
     from ats.common import dismiss_cookies
     dismiss_cookies(page)
@@ -305,9 +405,20 @@ def run_one(ctx, r, files, dry):
     except Exception:
         html = ''
     adapter = ats.detect(page.url, html)
+    loc_txt = posting_location(page)
+    if r.get('id') and loc_txt:
+        import hunt
+        if hunt.NON_US.search(loc_txt) and not hunt.US.search(loc_txt):
+            res = result('CANCELLED', f'CLOSED – non-US role (posting location: {loc_txt[:80]})', page=page)
+            res['ats'] = adapter.__name__.split('.')[-1]
+            return res
     job = dict(url=r['Link'], company=r.get('Company'), title=r.get('Position'), dry=dry, **files)
-    res = adapter.run(ctx, page, job)
+    if not ats.allowed(adapter) and adapter.__name__.split('.')[-1] not in ('linkedin', 'jobright', 'generic'):
+        res = ats.skipped(adapter, page)   # APPLY_ATS_ONLY (owner, Oct 19): Greenhouse + Ashby only for now
+    else:
+        res = adapter.run(ctx, page, job)
     res['ats'] = adapter.__name__.split('.')[-1]
+    if res['status'] == 'SKIPPED': return res
     if dry:
         try: clicks = (res.get('page') or page).evaluate('window.__jhClicks || []')
         except Exception: clicks = []
@@ -325,6 +436,11 @@ def run_one(ctx, r, files, dry):
           ([res.get('reason')] if formfill.GOV_ID.search(res.get('reason') or '') else [])
     if gov:
         res.update(status='CANCELLED', reason=f"CANCELLED – the application asks for a government ID: {str(gov[0])[:200]}")
+        return res
+    inel = [str(u) for u in (res.get('unknown') or []) if str(u).startswith('INELIGIBLE')]
+    if inel:   # owner rule: clearance / ITAR roles are blocked (CHAOS, Bespoke Oct 13 asked only inside the form)
+        kind = 'non-US role' if 'non-US' in inel[0] else 'clearance role'
+        res.update(status='CANCELLED', reason=f"CLOSED – {kind}, the form asks: {inel[0].split(': ', 1)[-1][:200]}")
         return res
     # Oct 13: single-page forms (Greenhouse, Ashby, generic...) get one Claude rescue before giving up (rescue.py).
     # Workday rescues inside its own step loop. Walls/CAPTCHA/closed/already-applied are never "fixed".
@@ -382,7 +498,9 @@ def run_one(ctx, r, files, dry):
             res.update(status='NEEDS YOU', reason=f"form filled, NOT submitted: {maybe}")
             return res
         armed['on'] = True                      # only auth.submit's own click may send the application
-        res = auth.submit(res.get('page') or page, res)
+        pg_s = res.get('page') or page
+        fr_s = formfill.form_frame(pg_s)   # Greenhouse embedded on a company site (Asana, PathAI Oct 20): Submit is in the iframe
+        res = auth.submit(pg_s, res, frame=fr_s if fr_s is not pg_s.main_frame else None)
         if res['status'] != 'SUBMITTED' and 'no confirmation' in (res.get('reason') or ''):
             ok = confirmed_by_email(r)
             if ok: res.update(status='SUBMITTED', reason=ok)
@@ -411,13 +529,18 @@ def main():
     if a.ids:
         rows = [notion.flat(notion._req('GET', f'/pages/{i.strip()}')) for i in a.ids.split(',') if i.strip()]
     elif a.ats:
-        dom = {'greenhouse': 'greenhouse.io', 'ashby': 'ashbyhq.com', 'lever': 'lever.co', 'workday': 'myworkdayjobs.com',
+        dom = {'greenhouse': r'greenhouse\.io|gh_jid=', 'ashby': r'ashbyhq\.com', 'lever': 'lever.co', 'workday': 'myworkdayjobs.com',
                'smartrecruiters': 'smartrecruiters.com', 'icims': 'icims.com', 'linkedin': 'linkedin.com/jobs'}
-        want = [dom.get(x.strip(), x.strip()) for x in a.ats.split(',')]
-        tried = attempts(); cutoff = time.time() - RETRY_HOURS * 3600
+        want = [dom.get(x.strip(), re.escape(x.strip())) for x in a.ats.split(',')]
+        tried = attempts(); cutoff = time.time() - RETRY_HOURS * 3600; fails = recent_fails()
+        # rows that wait on HIS decision are never auto-applied (Akuna "your ONE pick", expired assessments)
+        human = re.compile(r'must confirm|your ONE\b|EXPIRED|AUTO-SKIP', re.I)
         rows = [r for r in notion.query({'or': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                                 {'property': 'Status', 'select': {'equals': 'Needs you'}}]})
-                if any(w in (r.get('Link') or '') for w in want) and tried.get(r['id'], 0) < cutoff]
+                if (any(re.search(w, r.get('Link') or '', re.I) for w in want)
+                    or any(re.search(x.strip(), str(r.get('Apply Via') or ''), re.I) for x in a.ats.split(',')))
+                and tried.get(r['id'], 0) < cutoff and not human.search(r.get('Notes') or '')
+                and not (fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600)]
         rows.sort(key=lambda r: r.get('created') or '', reverse=True)
         rows = rows[:a.max]
     elif a.only:
@@ -446,7 +569,12 @@ def main():
                 except Exception:
                     pass
         li_limited = False
+        import faulthandler
         for r in rows:
+            # Oct 20: one row (Akuna) hung a run for 40 min and blocked every later run (lock). Watchdog: after 25 min on
+            # one row, print where it hangs and exit; the attempt is stamped first so the next run skips that row a while
+            faulthandler.dump_traceback_later(1500, exit=True)
+            if r.get('id') and not a.dry: mark_attempt(r['id'])
             stamp = dt.datetime.now(CT).strftime('%b %d %I:%M %p CT')
             try: before = list(ctx.pages)
             except Exception: before = []
@@ -484,6 +612,8 @@ def main():
                 print('LinkedIn rate limit hit -> skipping the remaining LinkedIn rows this run')
                 close_forms(ctx); continue
             results.append((r, res))
+            if not a.dry and re.search(r'site limit: (?!.*allows one application)|limiting applications', res.get('reason') or '', re.I):
+                note_limit(r.get('Company'))
             if not a.dry:                           # D2: per-row outcome log for daily metrics (metrics.py)
                 try:
                     with open(config.DATA / 'apply_results.jsonl', 'a') as fh:
@@ -505,7 +635,19 @@ def main():
                     notion.update_row(r['id'], notion.props(Link=re.sub(r'/(login|apply/[^?]*)(\?.*)?$', '', fin)))
             except Exception:
                 pass
-            if r.get('id') and not a.dry and res['status'] != 'ERROR':
+            if r.get('id') and not a.dry and res['status'] == 'SKIPPED':
+                try:
+                    import community
+                    upd = notion.props(Notes=(f"AUTO-SKIP {stamp} – {res['reason']} (apply by hand) | " + (r.get('Notes') or ''))[:1990])
+                    fin = (res.get('page').url if res.get('page') else '') or ''
+                    via = res.get('via') or (community.apply_via(fin) if fin.startswith('http') and 'linkedin.com' not in fin else None)
+                    if via: upd['Apply Via'] = {'select': {'name': via}}
+                    if via and via != 'LinkedIn Easy Apply' and fin.startswith('http') and 'linkedin.com' not in fin and not re.search(r'login|sign-?in|/auth|/account', fin, re.I):
+                        upd['Apply Link'] = {'url': fin[:1900]}
+                    elif via == 'LinkedIn Easy Apply': upd['Apply Link'] = {'url': r.get('Link')}
+                    notion.update_row(r['id'], upd)
+                except Exception: pass
+            elif r.get('id') and not a.dry and res['status'] != 'ERROR':
                 applied = None
                 if res['status'] == 'SUBMITTED':
                     note, status = f"APPLIED {stamp} (auto-submitted, {res['ats']}, confirmation seen)", 'Applied'
@@ -522,11 +664,16 @@ def main():
                     note, status = f"NEEDS YOU – {res['reason'][:600]} ({res['ats']}, tab open, {stamp})", 'Needs you'
                 note = note.replace('(tab open', '(tab closed — open the Link to finish').replace('tab open', 'tab closed — open the Link to finish')
                 upd = notion.props(Notes=(note + ' | ' + (r.get('Notes') or ''))[:1990], Status=status, DateApplied=applied)
-                try:   # learned where this job really applies (Easy Apply / external ATS) -> Apply Via column
+                try:   # learned where this job really applies -> Apply Via column. Only what was SEEN: the Easy Apply
+                    # button (linkedin adapter sets res['via']) or the site the run ended on; a LinkedIn error/sign-in
+                    # wall says nothing (Oct 20: those were all labelled Easy Apply)
                     import community
-                    hint = res.get('reason') or ''
-                    if res.get('ats') == 'linkedin' and 'external apply' not in hint: hint = 'Easy Apply ' + hint
-                    upd['Apply Via'] = {'select': {'name': community.apply_via(r.get('Link'), hint)}}
+                    fin = (res.get('page').url if res.get('page') else '') or ''
+                    via = res.get('via') or (community.apply_via(fin) if fin.startswith('http') and 'linkedin.com' not in fin else None)
+                    if via: upd['Apply Via'] = {'select': {'name': via}}
+                    if via and via != 'LinkedIn Easy Apply' and fin.startswith('http') and 'linkedin.com' not in fin and not re.search(r'login|sign-?in|/auth|/account', fin, re.I):
+                        upd['Apply Link'] = {'url': fin[:1900]}
+                    elif via == 'LinkedIn Easy Apply': upd['Apply Link'] = {'url': r.get('Link')}
                 except Exception:
                     pass
                 notion.update_row(r['id'], upd)
@@ -539,6 +686,7 @@ def main():
                                                                     f"{(res.get('reason') or '')[:500]} ({stamp}) | " + (r.get('Notes') or ''))[:1990]))
                 except Exception: pass
             close_forms(ctx)
+    faulthandler.cancel_dump_traceback_later()
     print('| Company | Role | ATS | Result |\n|---|---|---|---|')
     for r, res in results:
         print(f"| {r.get('Company')} | {r.get('Position')} | {res.get('ats')} | {res['status']}: {res['reason'][:300]} |")

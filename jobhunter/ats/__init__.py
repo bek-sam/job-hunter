@@ -8,7 +8,7 @@ Contract for every adapter (hard limits): fill only; stop on the last review pag
 leave the tab open; never type passwords, create accounts, solve CAPTCHAs, enter codes, tick consent/legal boxes,
 or invent answers -- unknown questions go to `unknown` and the result is NEEDS YOU.
 """
-import importlib, re
+import importlib, os, re
 
 ORDER = ['workday', 'linkedin', 'jobright', 'greenhouse', 'lever', 'ashby', 'smartrecruiters', 'icims', 'oracle', 'eightfold',
          'taleo', 'jobvite', 'workable', 'successfactors', 'tiktok', 'generic']
@@ -31,3 +31,18 @@ def detect(url, html=''):
         if re.search(m.MATCH, url, re.I) or (getattr(m, 'HTML_MATCH', None) and re.search(m.HTML_MATCH, html or '', re.I)):
             return m
     return importlib.import_module('ats.generic')
+
+
+# owner, Oct 19: auto-apply ONLY on these systems for now (.env APPLY_ATS_ONLY=greenhouse,ashby). LinkedIn / jobright /
+# generic company pages are still opened, but only to follow them to a Greenhouse/Ashby form; anything else is SKIPPED
+# (row untouched, Link updated to the real site so the next run's focus filter leaves it out).
+ONLY = [x.strip().lower() for x in os.environ.get('APPLY_ATS_ONLY', '').split(',') if x.strip()]
+
+
+def allowed(m):
+    return not ONLY or m.__name__.split('.')[-1] in ONLY
+
+
+def skipped(m, page):
+    from ats.common import result
+    return result('SKIPPED', f"auto-apply is limited to {'/'.join(ONLY)}; this job applies on {m.__name__.split('.')[-1]}", page=page)

@@ -17,7 +17,7 @@ def check(frame, done, unknown):
         return done, unknown
     for d in fields:
         label = d.get('label') or ''
-        if d.get('kind') in ('radio', 'buttons') or d.get('type') in ('file', 'checkbox'): continue
+        if d.get('kind') in ('radio', 'buttons', 'checks') or d.get('type') in ('file', 'checkbox'): continue
         loc = frame.locator(f'[data-jh="{d["n"]}"]').first
         val = (d.get('value') or '').strip()
         if not val:

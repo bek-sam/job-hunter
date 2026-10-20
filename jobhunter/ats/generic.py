@@ -41,8 +41,12 @@ def run(ctx, page, job):
             except Exception: html = ''
             m = ats.detect(page.url, html)
             if not m.__name__.endswith('.generic'):
+                if not ats.allowed(m): return ats.skipped(m, page)
                 res = m.run(ctx, page, job); res['reason'] = f"via {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
                 return res
+    import ats, sys
+    if not ats.allowed(sys.modules[__name__]) and not re.search(r'greenhouse\.io|ashbyhq\.com', formfill.form_frame(page).url or ''):
+        return ats.skipped(sys.modules[__name__], page)   # APPLY_ATS_ONLY: the company's own form is not on the list
     if needs_login(page): return result('NEEDS YOU', 'sign in / create account (tab open)', page=page)
     if captcha(page): return result('NEEDS YOU', 'CAPTCHA', page=page)
     frame = formfill.form_frame(page)

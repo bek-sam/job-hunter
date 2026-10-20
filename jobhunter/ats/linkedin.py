@@ -65,6 +65,22 @@ def page_company_title(page):
         return ['', '']
 
 
+def apply_kind(link):
+    """'easy' | 'offsite' | None from LinkedIn's public job page (no login): the Apply button is tracked as
+    public_jobs_apply-link-onsite (Easy Apply) or ...-offsite (company site)."""
+    m = re.search(r'(\d{8,})', re.sub(r'\?.*', '', link or '')) or re.search(r'currentJobId=(\d+)', link or '')
+    if not m or 'linkedin.com' not in (link or ''): return None
+    try:
+        r = urllib.request.Request(f'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{m.group(1)}', headers=UA)
+        with urllib.request.urlopen(r, timeout=20) as f: h = f.read().decode('utf-8', 'ignore')
+    except Exception:
+        return None
+    if 'apply-link-offsite' in h: return 'offsite'
+    if 'apply-link-onsite' in h: return 'easy'
+    if re.search(r'No longer accepting applications|closed-job', h, re.I): return 'closed'
+    return None
+
+
 def resolve_offsite(company, title):
     """Find the same posting on the company's own ATS without LinkedIn login. Returns a URL or None."""
     if not company or not title: return None
@@ -123,8 +139,13 @@ def route(ctx, li_page, company_page, job, how):
     m = ats.detect(company_page.url, html)
     if m.__name__.endswith('.linkedin'):
         m = __import__('ats.generic', fromlist=['run'])
-    res = m.run(ctx, company_page, job)
+    if not ats.allowed(m) and not m.__name__.endswith('.generic'):   # generic decides itself (it may lead to Greenhouse/Ashby)
+        res = ats.skipped(m, company_page)
+    else:
+        res = m.run(ctx, company_page, job)
     res['reason'] = f"via LinkedIn ({how}) → {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
+    import community
+    res['via'] = community.apply_via(company_page.url)   # the site LinkedIn's Apply button really led to
     if company_page is not li_page:
         try: li_page.close()
         except Exception: pass
@@ -284,7 +305,13 @@ def run(ctx, page, job):
         if not (easy.count() and easy.first.is_visible()):
             easy = page.get_by_role('button', name=re.compile(r'^\s*easy apply', re.I))
         if easy.count() and easy.first.is_visible():
-            return easy_apply(ctx, page, job, easy.first)
+            import ats
+            if not ats.allowed(__import__('ats.linkedin', fromlist=['run'])):
+                res = ats.skipped(__import__('ats.linkedin', fromlist=['run']), page)   # Easy Apply is LinkedIn's own form
+            else:
+                res = easy_apply(ctx, page, job, easy.first)
+            res['via'] = 'LinkedIn Easy Apply'   # seen: the posting has LinkedIn's own Easy Apply button
+            return res
         ext = page.locator('button.jobs-apply-button, a.jobs-apply-button, button[aria-label^="Apply" i]')
         if not (ext.count() and ext.first.is_visible()):
             ext = page.get_by_role('button', name=re.compile(r'^\s*apply(\s+on company (web)?site)?\s*$', re.I))
