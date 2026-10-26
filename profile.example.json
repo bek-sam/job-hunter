@@ -654,7 +654,7 @@
    "May 2027"
   ],
   "grad_school": null,
-  "grad_school_on": "intern",
+  "grad_school_on": "all",
   "courses": [
    "Data Structures",
    "Algorithms"
@@ -694,6 +694,7 @@
     1.0
    ]
   },
+  "projects_only": ["Project A"],
   "lead": [],
   "always_pins_entry": "",
   "header_city_default": "Springfield, IL",

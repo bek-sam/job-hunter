@@ -29,8 +29,8 @@ def captcha(page):
         for fr in page.frames:
             ifr = fr.locator('iframe[src*="hcaptcha.com/captcha"], iframe[src*="recaptcha/api2/bframe"], iframe[src*="recaptcha/enterprise/bframe"]')
             for i in range(ifr.count()):
-                bb = ifr.nth(i).bounding_box()
-                if bb and bb.get('height', 0) >= 300 and bb.get('width', 0) >= 250: return True
+                bb = ifr.nth(i).bounding_box()   # Lever pre-renders a hidden full-page hCaptcha enclave: must be visible
+                if bb and bb.get('height', 0) >= 300 and bb.get('width', 0) >= 250 and ifr.nth(i).is_visible(): return True
     except Exception:
         pass
     return bool(re.search(r'verify you are human|are you a robot|press and hold', body_text(page, 5000), re.I))

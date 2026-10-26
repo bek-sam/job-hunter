@@ -57,6 +57,7 @@ def fill(page, job, scope='input, textarea, select'):
     done, unknown = [], []
     locs = page.locator(scope)
     radio_groups = {}
+    ask = []   # (loc, d) with no Answer Bank rule -> one batched LLM call below (answers.py)
     resume_done = False
     for i in range(locs.count()):
         loc = locs.nth(i)
@@ -81,7 +82,11 @@ def fill(page, job, scope='input, textarea, select'):
             if typ == 'radio':
                 radio_groups.setdefault(label or f'group{i}', []).append((loc, d)); continue
             if typ == 'checkbox':
-                if formfill.CONSENT.search(label) and d['required']: unknown.append(label + ' (legal/consent — yours)')
+                if formfill.CONSENT.search(label) and d['required']:
+                    if formfill.consent_on():   # AUTO_CONSENT=1 (owner, Oct 12): required terms/privacy box only
+                        if not d['checked']: loc.check(force=True)
+                        done.append(label[:80])
+                    else: unknown.append(label + ' (legal/consent — yours)')
                 continue
             if d['value'] and d['tag'] != 'select': continue
             if formfill.CONSENT.search(label):
@@ -92,20 +97,67 @@ def fill(page, job, scope='input, textarea, select'):
                 continue
             val, opt = formfill.rule_for(label)
             if val is None and opt is None:
-                if d['required']: unknown.append(label)
-                continue
+                ask.append((loc, d)); continue
+            # rule had no matching option (SmartRecruiters words them as sentences): the answer step picks from the real list
             if d['tag'] == 'select':
                 o = formfill.pick(d['options'] or [], opt, val)
                 if o: loc.select_option(label=o); done.append(label)
-                elif d['required']: unknown.append(label)
+                else: ask.append((loc, d))
             elif d.get('role') == 'combobox':
                 o = combobox_pick(page, loc, val, opt)
                 if o: done.append(label)
-                elif d['required']: unknown.append(label)
+                else: ask.append((loc, d))
             else:
                 loc.fill(val); done.append(label)
         except Exception as e:
             if d.get('required'): unknown.append(f'{label} (error: {str(e)[:60]})')
+    d2, u2 = _ask(page, ask, job)
+    return done + d2, unknown + u2
+
+
+def _ask(page, ask, job):
+    """Questions with no rule: one LLM call (answers.answer_questions, his facts only); unanswered required -> unknown."""
+    done, unknown = [], []
+    if not ask: return done, unknown
+    ans = [None] * len(ask)
+    if not job.get('no_llm'):
+        qs = []
+        for loc, d in ask:
+            opts = [o for o in (d.get('options') or []) if o and not re.match(r'^(select|choose|--)', o, re.I)]
+            if d.get('role') == 'combobox' and not opts:
+                try:   # only this field's own menu: SmartRecruiters keeps every question's options in the DOM
+                    ctrl = loc.get_attribute('aria-controls')
+                    if ctrl:
+                        loc.click(); page.wait_for_timeout(700)
+                        opts = page.locator(f'[id="{ctrl}"] [role="option"]').evaluate_all(OPT_TEXT_JS)[:60]; loc.press('Escape')
+                except Exception:
+                    opts = []
+                if not opts: qs.append(None); continue   # options unknown: never let the model guess a free-text pick
+            qs.append(dict(label=d['label'], options=opts, required=d['required'],
+                           kind='choice' if opts else ('long text' if d['tag'] == 'textarea' else 'short text')))
+        try:
+            import answers
+            real = [q for q in qs if q]
+            got = iter(answers.answer_questions(real, job))
+            ans = [next(got) if q else None for q in qs]
+        except Exception as e:
+            print('shadow answer step failed:', str(e)[:200])
+    for (loc, d), a in zip(ask, ans):
+        ok = False
+        try:
+            if a:
+                exact = '^' + re.escape(a.strip()) + '$'   # the answer is one of the options: never a substring match
+                if d['tag'] == 'select':
+                    o = formfill.pick(d['options'] or [], exact, a)
+                    if o: loc.select_option(label=o); ok = True
+                elif d.get('role') == 'combobox':
+                    ok = combobox_pick(page, loc, a, exact) is not None
+                else:
+                    loc.fill(a); ok = True
+        except Exception:
+            ok = False
+        if ok: done.append(d['label'])
+        elif d['required']: unknown.append(d['label'])
     return done, unknown
 
 

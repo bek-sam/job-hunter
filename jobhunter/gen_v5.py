@@ -4,7 +4,7 @@ Only TECHNICAL SKILLS is tailored: JD terms are moved to the front of their cate
 Usage: python3 gen_v5.py specs.json   -> <RESUME_OUT>/<file>/First_Last_Resume.pdf/.docx
 Spec: {"id","file","position":"<job title>","required":[...],"preferred":[...],"title"?:"<override headline>"}
 """
-import json, os, re, subprocess, sys
+import json, os, re, shutil, subprocess, sys
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
@@ -206,9 +206,12 @@ def render(skills, fs=10.0, width=7.5, hl=HEADLINE):
     cp.comments = cp.subject = cp.keywords = cp.category = ''
     return doc
 
+# launchd's PATH has no LibreOffice link (lost in the Oct 21 app cleanup): fall back to the app bundle itself
+SOFFICE = shutil.which('soffice') or '/Applications/LibreOffice.app/Contents/MacOS/soffice'
+
 def to_pdf(dp):
     prof = 'file:///tmp/lo_' + str(os.getpid())
-    subprocess.run(['soffice', '-env:UserInstallation=' + prof, '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(dp), dp], capture_output=True, timeout=180)
+    subprocess.run([SOFFICE, '-env:UserInstallation=' + prof, '--headless', '--convert-to', 'pdf', '--outdir', os.path.dirname(dp), dp], capture_output=True, timeout=180)
     pp = dp[:-5] + '.pdf'
     with pikepdf.open(pp, allow_overwriting_input=True) as pdf:
         with pdf.open_metadata(set_pikepdf_as_editor=False) as m:

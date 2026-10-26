@@ -16,7 +16,7 @@ import gen_v6
 import resume_sync
 
 SPECS = Path(__file__).parent / 'testdata' / 'resume_specs.json'
-SECTIONS = ['EDUCATION', 'TECHNICAL SKILLS', 'EXPERIENCE', 'PROJECTS', 'LEADERSHIP & INVOLVEMENT']
+SECTIONS = ['EDUCATION', 'EXPERIENCE', 'PROJECTS', 'TECHNICAL SKILLS', 'LEADERSHIP & INVOLVEMENT']   # owner, Oct 23
 FIRST_PERSON = re.compile(r'\b(I|my|me)\b')
 NOT_DEPLOYED = re.compile(r'deploy|in production|live users', re.I)
 DATE_TAIL = re.compile(r'\s*(?:[A-Z][a-z]{2} )?\d{4}(?:\s*–\s*(?:(?:[A-Z][a-z]{2} )?\d{4}|Present))?$')
@@ -54,7 +54,7 @@ def check(spec, res, facts):
     # education: the optional second school only on resumes of kind resume_v6.grad_school_on
     if gen_v6.UT:
         has_ut = any(p.startswith(gen_v6.UT[0]) for p in paras)
-        if has_ut != (spec.get('kind') == gen_v6.R6.get('grad_school_on', 'intern')): errs.append(f'{gen_v6.UT[0]} shown on wrong resume kind')
+        if has_ut != gen_v6.shows_grad_school(spec): errs.append(f'{gen_v6.UT[0]} shown on wrong resume kind')
     # bullets: scope bullet first, every job >= 1 bullet, nothing unsafe
     bullets, cur, sec = {}, None, None
     for p in paras:
@@ -70,6 +70,7 @@ def check(spec, res, facts):
         want = fixed[:2] if fixed else [pinned[0]['text']] if pinned else []
         if want and got[:len(want)] != want: errs.append(f'{comp} does not start with its pinned scope bullet(s)')
     for name in res['projects']:
+        if name not in gen_v6.PROJ_ONLY: errs.append(f'project {name} is not in resume_v6.projects_only')
         pinned = gen_v6.pins(facts, gen_v6.PROJ[name][0])
         if pinned and bullets.get(name, [''])[0] != pinned[0]['text']: errs.append(f'{name} does not start with its intro bullet')
         if name in resume_sync.NOT_DEPLOYED_ROWS and any(NOT_DEPLOYED.search(b) for b in bullets.get(name, [])):
@@ -77,6 +78,9 @@ def check(spec, res, facts):
     for b in (b for v in bullets.values() for b in v):
         if FIRST_PERSON.search(b): errs.append(f'first person: {b[:50]}')
         if resume_sync.DENY.search(b) or resume_sync.UNSAFE.search(b): errs.append(f'removed/unconfirmed claim: {b[:50]}')
+    # skills: Concepts stays on one line (no JD phrase dump)
+    for c, items in res['skills']:
+        if c == 'Concepts' and len(c) + 2 + len(items) > gen_v6.LINE: errs.append(f'Concepts wraps: {items[:60]}')
     # layout: no orphan word lines (a wrapped line holding only 1-2 words, e.g. "evals." or "SQLite")
     for ln in pdf_lines(pdf)[1:]:
         if ln in SECTIONS or ln.startswith('•'): continue

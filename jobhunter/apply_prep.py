@@ -9,6 +9,7 @@ SuccessFactors, generic). Adapters stop on the review page BEFORE the final Subm
   python apply_prep.py                                   # normal run (Notion rows)
   python apply_prep.py --url URL [--page NOTION_PAGE_ID] [--pdf resume.pdf] --dry   # one form (testing)
 """
+from urllib.parse import urlsplit
 import applicant as P
 import argparse, datetime as dt, json, os, re, tempfile, time, traceback
 from zoneinfo import ZoneInfo
@@ -20,6 +21,10 @@ CT = ZoneInfo('America/Chicago')
 FILES = config.DATA / 'apply_files'; FILES.mkdir(exist_ok=True)
 
 
+ENTRY_TITLE = re.compile(r'new grad|graduate|intern|co-?op|entry|junior|\bjr\b|associate|early career|university|campus|202[6-8]|'
+                         r'\b(i|1)\b(?!\w)|apprentice|fellow|rotational|development program|leadership program', re.I)
+
+
 def rows_to_fill():
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)).isoformat()
     fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
@@ -28,7 +33,9 @@ def rows_to_fill():
                                  {'timestamp': 'created_time', 'created_time': {'on_or_after': since}}]})
     now = notion.query({'property': 'Notes', 'rich_text': {'contains': 'FILL NOW'}})
     fit = lambda r: int((re.search(r'fit (\d+)', r.get('Notes') or '') or [0, 0])[1])
-    fast.sort(key=lambda r: (r['created'][:13], fit(r)), reverse=True)
+    # Oct 23: entry-level titles get ~4x the OA/interview rate (2.9% vs 0.7% of Sep-Oct 18 applications) -> they go first
+    entry = lambda r: bool(ENTRY_TITLE.search(r.get('Position') or '')) or r.get('Type') in ('New Grad', 'Internship')
+    fast.sort(key=lambda r: (entry(r), r['created'][:13], fit(r)), reverse=True)
     done_states = {'Applied', 'Closed', 'Rejected', 'OA', 'Interview', 'Offer', 'Ghosted'}
     tried = attempts()
     cutoff = time.time() - RETRY_HOURS * 3600
@@ -41,12 +48,23 @@ def rows_to_fill():
     for r in fast + now:
         if r['id'] in seen or r.get('Status') in done_states: continue
         if not focus.search(r.get('Link') or ''): continue
-        if ats.ONLY and 'AUTO-SKIP' in (r.get('Notes') or ''): continue   # already found to apply elsewhere
+        if ats.ONLY and still_skipped(r.get('Notes'), r.get('Link')): continue   # already found to apply elsewhere
         if ats.ONLY and not via_allowed(r): continue   # li_resolve found it applies on another system
         if tried.get(r['id'], 0) > cutoff: continue          # back off: tried within the last RETRY_HOURS
         if fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600: continue   # keeps failing: 2x/day
         seen.add(r['id']); out.append(r)
     return out
+
+
+def still_skipped(notes, link=''):
+    """An AUTO-SKIP note still holds unless the system it names was added to APPLY_ATS_ONLY later (Oct 22: Lever,
+    SmartRecruiters, Workable, Rippling, JazzHR, Breezy, BambooHR -- the last four were skipped as 'generic')."""
+    m = re.search(r'AUTO-SKIP[^|]*?this job applies on (\w+)', notes or '')
+    if m and m.group(1) == 'generic':
+        from ats import generic
+        return not generic.small_ats(link)
+    if m: return m.group(1).lower() not in ats.ONLY
+    return 'AUTO-SKIP' in (notes or '')
 
 
 def via_allowed(r):
@@ -78,7 +96,16 @@ def posting_key(url):
                r'smartrecruiters\.com/([^/]+)/(\d+)'):
         m = re.search(rx, u)
         if m: return ':'.join(x for x in m.groups() if x)
-    return re.sub(r'(/apply.*|/application|/confirmation|\?.*|#.*)$', '', u)
+    # Greenhouse embed (?for=<board>&token=<id>, any order): Oct 25 these all collapsed to ".../embed/job_app", so one
+    # Epic Games / Elastic / Stripe submission blocked every later embed posting as "already applied"
+    if 'greenhouse.io/embed/job_app' in u:
+        b, t = re.search(r'[?&]for=([\w-]+)', u), re.search(r'[?&]token=(\d+)', u)
+        if b and t: return f'{b[1]}:{t[1]}'
+    # else path + the query params that identify the job (tracking params dropped, never the whole query)
+    s = urlsplit(u)
+    path = re.sub(r'(/apply.*|/application|/confirmation)$', '', s.path)
+    q = sorted(kv for kv in s.query.split('&') if kv and not re.match(r'(utm_\w+|jr_id|gh_src|source|src|ref|lever-\w+)=', kv))
+    return f'{s.scheme}://{s.netloc}{path}' + ('?' + '&'.join(q) if q else '')
 
 
 def already_submitted(url):
@@ -242,7 +269,9 @@ def looks_like_login(page):
 SUBMIT_REQ = re.compile(r'submit|/applications?(/|\?|$)|apply(Job|ToJob|Now)?\b|/jobs/\d+/?(\?|$)', re.I)
 
 
-GUARD_HOSTS = re.compile(r'greenhouse\.io|ashbyhq\.com|lever\.co', re.I)
+# bot checks and monitoring beacons: never an application (Workable's Cloudflare check, JazzHR's New Relic -- Oct 22)
+NOT_APP = re.compile(r'/cdn-cgi/challenge-platform/|nr-data\.net|sentry\.io|datadoghq|google-analytics|googletagmanager', re.I)
+GUARD_HOSTS = re.compile(r'greenhouse\.io|ashbyhq\.com|lever\.co|smartrecruiters\.com|workable\.com|rippling\.com|applytojob\.com|breezy\.hr|bamboohr\.com', re.I)
 
 
 def dry_guard(page, blocked, armed=None):
@@ -256,14 +285,17 @@ def dry_guard(page, blocked, armed=None):
                 ct = (req.headers.get('content-type') or '').lower()
                 body = (req.post_data or '')[:3000] if ('json' in ct or 'x-www-form' in ct) else ''
                 op = re.search(r'[?&]op=(\w+)|"operationName"\s*:\s*"(\w+)"', req.url + ' ' + body)
-                what = (op.group(1) or op.group(2)) if op else req.url + ' ' + body   # GraphQL: judge by operation name only
-                if re.search(r'/(event|events|track|tracking|log|logs|analytics|telemetry|collect|beacon|metrics?)(/|\?|$)', req.url, re.I):
+                # judge the path, never the host: "apply.workable.com", "x.applytojob.com" are hosts (Oct 22)
+                path = urlsplit(req.url).path
+                what = (op.group(1) or op.group(2)) if op else path + ' ' + body   # GraphQL: judge by operation name only
+                if re.search(r'/(event|events|track|tracking|log|logs|analytics|telemetry|collect|beacon|metrics?)(/|\?|$)', req.url, re.I) \
+                        or NOT_APP.search(req.url):
                     hit = False                 # analytics pings ("jobright.ai/swan/event/submit") are not applications
                 elif 'linkedin.com' in req.url:   # LinkedIn SDUI: opening/stepping Easy Apply is a POST to .../EasyApply -- only 'submit' counts
                     hit = bool(re.search(r'submit', req.url + ' ' + body, re.I))
                 else:
                     hit = bool((re.search(r'submit', what, re.I) and not (op and re.search(r'consent|texting|upload|file|resume|survey|parse|draft', what, re.I)))
-                               or (not op and SUBMIT_REQ.search(req.url) and 'upload' not in req.url.lower()))
+                               or (not op and SUBMIT_REQ.search(path) and 'upload' not in req.url.lower()))
                 if hit:
                     blocked.append(f"{req.method} {req.url[:150]} {body[:150]}")
                     return route.abort()
@@ -373,6 +405,9 @@ def run_one(ctx, r, files, dry):
         return res
     import li_resolve
     target = li_resolve.apply_url(r) if 'linkedin.com' in (r.get('Link') or '') else None
+    al, link = r.get('Apply Link') or '', r.get('Link') or ''
+    if not target and al and not urlsplit(link).path.strip('/') and urlsplit(al).netloc == urlsplit(link).netloc:
+        target = al   # a skip run left only the careers-site root in Link (JazzHR, Oct 22); Apply Link has the job
     page = ctx.new_page()
     blocked, armed = [], {'on': False}
     if dry: dry_guard(page, blocked)
@@ -444,7 +479,8 @@ def run_one(ctx, r, files, dry):
         return res
     # Oct 13: single-page forms (Greenhouse, Ashby, generic...) get one Claude rescue before giving up (rescue.py).
     # Workday rescues inside its own step loop. Walls/CAPTCHA/closed/already-applied are never "fixed".
-    if res['status'] == 'NEEDS YOU' and not dry and res.get('ats') != 'workday' and not re.search(
+    # never on a jobright.ai page: it has no form, the rescue only clicked jobright's own APPLY WITH AUTOFILL (Oct 24)
+    if res['status'] == 'NEEDS YOU' and not dry and res.get('ats') != 'workday' and 'jobright.ai' not in pg0.url and not re.search(
             r'captcha|sign in|create (an )?account|log ?in|closed|no longer|already applied|possibly by hand|verification|'
             r'no application form|no apply button|not a .* posting|site limit|limiting applications', res.get('reason') or '', re.I):
         try:
@@ -530,16 +566,17 @@ def main():
         rows = [notion.flat(notion._req('GET', f'/pages/{i.strip()}')) for i in a.ids.split(',') if i.strip()]
     elif a.ats:
         dom = {'greenhouse': r'greenhouse\.io|gh_jid=', 'ashby': r'ashbyhq\.com', 'lever': 'lever.co', 'workday': 'myworkdayjobs.com',
-               'smartrecruiters': 'smartrecruiters.com', 'icims': 'icims.com', 'linkedin': 'linkedin.com/jobs'}
+               'smartrecruiters': 'smartrecruiters.com', 'icims': 'icims.com', 'linkedin': 'linkedin.com/jobs',
+               'workable': 'workable.com', 'rippling': 'rippling.com', 'jazzhr': 'applytojob.com', 'breezy': 'breezy.hr', 'bamboohr': 'bamboohr.com'}
         want = [dom.get(x.strip(), re.escape(x.strip())) for x in a.ats.split(',')]
         tried = attempts(); cutoff = time.time() - RETRY_HOURS * 3600; fails = recent_fails()
         # rows that wait on HIS decision are never auto-applied (Akuna "your ONE pick", expired assessments)
-        human = re.compile(r'must confirm|your ONE\b|EXPIRED|AUTO-SKIP', re.I)
+        human = re.compile(r'must confirm|your ONE\b|EXPIRED', re.I)
         rows = [r for r in notion.query({'or': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                                 {'property': 'Status', 'select': {'equals': 'Needs you'}}]})
                 if (any(re.search(w, r.get('Link') or '', re.I) for w in want)
                     or any(re.search(x.strip(), str(r.get('Apply Via') or ''), re.I) for x in a.ats.split(',')))
-                and tried.get(r['id'], 0) < cutoff and not human.search(r.get('Notes') or '')
+                and tried.get(r['id'], 0) < cutoff and not human.search(r.get('Notes') or '') and not still_skipped(r.get('Notes'), r.get('Link'))
                 and not (fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600)]
         rows.sort(key=lambda r: r.get('created') or '', reverse=True)
         rows = rows[:a.max]

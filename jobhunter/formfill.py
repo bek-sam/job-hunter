@@ -93,9 +93,10 @@ KEYED = [
     (r'^(do|did) you (have|hold|possess) an? (college|university|bachelor.?s?|undergraduate|4-year|four-year)? ?degree|^have you (completed|earned|obtained|received) (an?|your) (college |university |bachelor.?s? |undergraduate )?degree', 'degree_completed'),
     (r'highest (completed|level of completed|finished) (degree|education)|highest degree (completed|earned|obtained)|highest (level of )?education (completed|attained)', 'highest_completed_degree'),
     (r'high school (diploma|equivalen)|\bged\b|secondary school (diploma|certificate)', 'high_school_diploma'),
-    (r'school|university|college|institution', 'school'),
     (r'will you be (actively )?enrolled|enrolled .{0,60}(during|entire|duration|after the internship)|return(ing)? to school|at least one (semester|term) remaining', 'enrolled_after_internship'),
     (r'currently enrolled|are you (a )?(current )?student|enrolled in|still (a )?student', 'currently_enrolled'),
+    # after the 'enrolled' rules: 'Are you currently enrolled in school?' is yes/no, not the school name (Oct 22)
+    (r'school|university|college|institution', 'school'),
     (r'^(highest )?(level of )?degree\b|degree (type|level|earned|obtained|pursuing)|^education level', 'degree_level'),
     (r'discipline|major|field of study', 'major'),
     (r'gpa', 'gpa'),
@@ -154,6 +155,8 @@ KEYED = [
     (r'pronoun', 'pronouns'),
 ]
 RULES = P.rules(KEYED)
+import config
+TRANSCRIPT = config.DATA / 'docs' / P.file('Transcript', 'pdf')   # data/docs/First_Last_Transcript.pdf (git-ignored)
 NEVER = re.compile(r'password|captcha|verification code|one[- ]time|ssn|social security|date of birth|birth ?date|'
                    r'driver.?s licen|passport (number|no)|bank (account|routing|details|name)|routing number|account number|credit card|signature|sign here', re.I)   # 'bank' alone hit 'World Bank' (GM, Oct 13)
 # fields that ask for a government ID number / document / ID verification (not yes/no questions about having one)
@@ -186,6 +189,11 @@ LABEL_JS = r"""
     if (!t) { for (let p = el.parentElement, i = 0; p && i < 10 && !t; i++, p = p.parentElement) {   // TikTok ud-formily: label ~7 levels up
       if (!/form-?item|formItem|FormItem/.test(p.className || '') && !p.hasAttribute('data-form-field-id')) continue;
       const l = p.querySelector('[class*="item-label"], label'); if (l && !l.contains(el)) t = txt(l); } }
+    // Rippling custom questions (Oct 22): question text sits in a wrapper with hashed classes. Only a wrapper that holds
+    // this one control counts, so a neighbour's question can never be borrowed
+    if (!t) { for (let p = el.parentElement, i = 0; p && i < 6 && !t; i++, p = p.parentElement) {
+      if (p.querySelectorAll('input:not([type=hidden]), textarea, select').length > 1) break;
+      const s = txt(p); if (s && s.length <= 300) t = s; } }
     return (t || el.getAttribute('placeholder') || el.name || '').slice(0, 300);
   };
   window.__jhLabel = labelOf;
@@ -538,6 +546,10 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                 key = ' '.join([label, d.get('id', ''), d.get('name', '')])
                 if re.search(r'cover', key, re.I):
                     if cover_txt: loc.set_input_files(cover_txt); done.append('Cover letter (file)')
+                    continue
+                if re.search(r'transcript', key, re.I):   # owner's unofficial transcript (Oct 20), when the file is saved
+                    if TRANSCRIPT.exists(): loc.set_input_files(str(TRANSCRIPT)); done.append('Transcript')
+                    elif d.get('required'): unknown.append(label + ' (transcript file missing)')
                     continue
                 if re.search(r'resume|cv\b|curriculum', key, re.I) and resume_pdf:
                     loc.set_input_files(resume_pdf); done.append('Resume')

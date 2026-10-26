@@ -1,13 +1,14 @@
 """Resume generator v6 (Oct 13 2026) — same look as v5, structure from the Amazon recruiter guide.
 
-Order: Header -> Education -> Technical Skills -> Experience -> Projects -> Leadership & Involvement.
+Order: Header -> Education -> Experience -> Projects -> Technical Skills -> Leadership & Involvement
+(owner, Oct 23: skills after projects -- the Oct 6-12 resumes in that order got 7 of the 9 OAs/interviews).
 - Education: school + city on line 1, degree + GPA + graduation month on line 2, coursework (6-8, ordered by role).
-  An optional second school (profile resume_v6.grad_school) is shown above it on resumes of kind resume_v6.grad_school_on.
-- Skills near the top, grouped by category, JD terms first; AWS certification listed with the skills.
+  An optional second school (profile resume_v6.grad_school) is shown above it on resumes of kind resume_v6.grad_school_on ('all' = every resume).
+- Skills after projects, grouped by category, proven JD terms first (at most 2 unproven named tools, never JD phrases).
 - Experience/leadership entries use two lines: Company — City, State / Title — Dates.
 - Bullets: the pinned (hand-approved) bullets plus the best role-matched bank bullets, all from Notion via
   data/resume_facts.json (resume_sync.py). No bullet text lives in this file; nothing is invented here.
-- Projects: the 3 best for the role out of an approved pool, each with dates, link and stack.
+- Projects: only profile resume_v6.projects_only (owner, Oct 23: InvAI + Wardrobe AI), each with dates, link and stack.
 Usage: python3 gen_v6.py specs.json   (spec: id, file, position, required, preferred, kind='newgrad'|'intern')
 """
 import json, os, re, sys
@@ -18,12 +19,19 @@ from gen_v5 import NAME, CONTACT, CANON, FAMILY, THEMES, canon, _run, _link, _pa
 import applicant as P, config
 
 OUT = os.environ.get('RESUME_OUT', str(config.RESUMES))
+VERSION = 'v6.2'   # written to the Notion row's Notes, so replies can be compared per resume version
 FACTS = config.DATA / 'resume_facts.json'
 
 # ---------- fixed facts: profile.json "resume_v6" (git-ignored) ----------
 R6 = P.get('resume_v6', default={})
 NAU = tuple(R6.get('school', ['', '', '', '', '']))         # (school, city, degree, GPA line, graduation) -- always shown
 UT = tuple(R6['grad_school']) if R6.get('grad_school') else None   # optional 2nd school, shown on R6['grad_school_on'] resumes
+
+
+def shows_grad_school(spec):
+    """True if this resume lists the 2nd school: resume_v6.grad_school_on is a resume kind ('intern'/'newgrad') or 'all'."""
+    on = R6.get('grad_school_on', 'intern')
+    return bool(UT) and (on == 'all' or spec.get('kind') == on)
 COURSES = R6.get('courses', [])
 COURSE_FIRST = R6.get('course_first', {})  # role key -> courses in order of relevance (recruiter guide: core first, then role-specific)
 CERT = R6.get('cert', '')
@@ -36,6 +44,7 @@ EXP = [tuple(e) for e in R6.get('exp', [])]      # (bank name prefix, company, l
 PROJ = {k: (v[0], [tuple(x) for x in v[1]], *v[2:]) for k, v in R6.get('proj', {}).items()}  # name -> (bank prefix, links, stack, dates, best_for tags, base priority)
 LEAD = [tuple(e) for e in R6.get('lead', [])]     # (bank prefix, org, location, role, dates) — bullets: the row's pinned bullets
 ALWAYS = R6.get('always_pins_entry', '')          # experience entry whose "always" pins come first
+PROJ_ONLY = R6.get('projects_only') or list(PROJ)  # projects allowed on the resume, nothing else is ever shown
 
 
 # ---------- role key + headline ----------
@@ -201,7 +210,7 @@ def choose_projects(key, terms, n):
         bul = ' '.join(b['text'] for b in _row(facts, prefix)).lower()
         cover = sum(1 for t in terms if re.search(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])', bul))
         return base + (4 if key in best else 0) + 2 * sum(1 for t in terms if t in st) + min(cover, 6) * 0.75
-    return sorted(PROJ, key=lambda k: -s(k))[:n]
+    return sorted((k for k in PROJ if k in PROJ_ONLY), key=lambda k: -s(k))[:n]
 
 
 # ---------- skills ----------
@@ -278,11 +287,14 @@ def build_skills(spec, key, tight=0):
     ok, unproven = proven(), 0
     for t in spec.get('required', []) + spec.get('preferred', []):
         if SOFT.match(t.strip()): continue
-        n = canon6(t) or _clean_skill(t)   # Oct 14: every required/preferred JD skill is listed (he knows them)
+        named = canon6(t)
+        n = named or _clean_skill(t)
         if not n: continue
         n = RENAME.get(n, n)
         if n.lower() not in ok:
-            if 0 <= UNPROVEN_MAX <= unproven: continue
+            # Oct 23: listing every JD skill filled Concepts with ad phrases ("Lab instruments", "Programming (coursework
+            # or projects)") and tools never used (Slurm, OpenShift); only a few known tool names may be added now
+            if not named or 0 <= UNPROVEN_MAX <= unproven: continue
             unproven += 1
         cat = next(c for c, rx in CATRX if re.search(rx, n.lower()))
         if n not in pri[cat]: pri[cat].append(n)
@@ -297,8 +309,8 @@ def build_skills(spec, key, tight=0):
         items = pri[c] + lines[c]
         room = LINE - len(c) - 2 - tight
         # JD terms may wrap to a 2nd line; base extras are dropped so a line never spills by a word or two
-        cap = room if len(', '.join(pri[c])) <= room else 2 * room
-        while len(', '.join(items)) > cap and len(items) > len(pri[c]): items.pop()
+        cap = room if c == 'Concepts' or len(', '.join(pri[c])) <= room else 2 * room   # Concepts: one line, always
+        while len(', '.join(items)) > cap and len(items) > (1 if c == 'Concepts' else len(pri[c])): items.pop()
         if c == 'Concepts' and not any(p in GENERIC or p.lower() in ('system design', 'distributed systems') for p in pri[c]):
             items = [i for i in items if i not in GENERIC]  # generic concepts only when the job asks for them (guide: no filler)
         if items: out.append((c, ', '.join(items)))
@@ -309,8 +321,9 @@ def build_skills(spec, key, tight=0):
 # ---------- layout ----------
 START = {'exp': [3, 2, 2], 'proj': [2, 2, 2], 'lead': [2, 2], 'tight': 0}
 TRIM = [  # applied in order until the page fits: least important content goes first
-    ('lead', 1, 1), ('exp', 1, 1), ('proj', 2, 1), ('proj', 2, 0), ('tight', None, 12), ('proj', 1, 1),
-    ('exp', 2, 1), ('lead', 0, 1), ('exp', 0, 2), ('proj', 0, 1),  # a 3rd project goes before a job bullet; every job keeps >= 1
+    # Oct 23: leadership bullets go before job bullets (the resumes that got OAs had a 2-line leadership block, 2 bullets per job)
+    ('lead', 1, 1), ('lead', 0, 1), ('exp', 1, 1), ('proj', 2, 1), ('proj', 2, 0), ('tight', None, 12), ('proj', 1, 1),
+    ('exp', 2, 1), ('exp', 0, 2), ('proj', 0, 1),  # a 3rd project goes before a job bullet; every job keeps >= 1
 ]
 LEVELS = len(TRIM) + 1
 TRIM_WEB = list(TRIM)
@@ -372,7 +385,7 @@ def plan(spec, level, revert=None):
         if n > 1: bl += pick(pinned[1:] + _bank(facts, prefix), n - 1, key, terms, taken, maxlen=190)
         projs.append((name, links, stack, dates, bl))
     lead = [(org, loc, r, d, [b['text'] for b in pins(facts, prefix)][:n]) for (prefix, org, loc, r, d), n in zip(LEAD, c['lead'])]
-    edu = ([UT] if UT and spec.get('kind') == R6.get('grad_school_on', 'intern') else []) + [NAU]
+    edu = ([UT] if shows_grad_school(spec) else []) + [NAU]
     first = COURSE_FIRST.get(key, ['Data Structures', 'Algorithms', 'Databases (SQL)', 'Operating Systems', 'Computer Networks', 'Software Engineering'])
     courses = []  # guide: 6-8 courses on one line, in role order; a long course is skipped for a shorter one that fits
     ordered = first + [x for x in COURSES if x not in first]
@@ -423,10 +436,6 @@ def render(p, fs=10.0, width=7.5):
         if school == NAU[0]:
             q = _para(doc); _run(q, 'Relevant Coursework: ', fs, True); _run(q, ', '.join(p['courses']), fs)
 
-    head('Technical Skills')
-    for c, items in p['skills']:
-        q = _para(doc); _run(q, c + ': ', fs, True); _run(q, items, fs)
-
     head('Experience')
     for i, (comp, loc, title, dates, bl) in enumerate(p['exp']):
         two([(comp, True, False)], loc, 2 if i else 0)
@@ -441,6 +450,10 @@ def render(p, fs=10.0, width=7.5):
             _run(q, ' | ', fs); _link(q, url, txt, fs)
         _run(q, ' | ' + stack, fs - 1.0, italic=True); _run(q, '\t' + dates, fs)
         for b in bl: bul(b)
+
+    head('Technical Skills')
+    for c, items in p['skills']:
+        q = _para(doc); _run(q, c + ': ', fs, True); _run(q, items, fs)
 
     head('Leadership & Involvement')
     for i, (org, loc, role, dates, bl) in enumerate(p['lead']):

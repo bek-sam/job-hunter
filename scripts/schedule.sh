@@ -82,6 +82,11 @@ PLIST
     mkdir -p $LA
     plistm com.jobhunter.fasthunter fast_hunter "9 24 39 54"
     echo "installed: Fast Hunter every 15 min (:09 :24 :39 :54)";;
+  install-5)   # Oct 22 (owner): Fast Hunter + Apply Prep every 5 minutes; each has a lock, so a slot that finds the last run still going is skipped
+    mkdir -p $LA
+    plistm com.jobhunter.fasthunter fast_hunter "0 5 10 15 20 25 30 35 40 45 50 55"
+    plistm com.jobhunter.applyprep apply_prep "2 7 12 17 22 27 32 37 42 47 52 57"
+    echo "installed: Fast Hunter every 5 min (:00 :05 ...), Apply Prep every 5 min (:02 :07 ...)";;
   install-agents)
     mkdir -p $LA
     plist2 com.jobhunter.manager manager "2:47 18:47"

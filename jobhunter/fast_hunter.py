@@ -84,6 +84,17 @@ def norm(s):
     return re.sub(r'[^a-z0-9]', '', (s or '').lower())
 
 
+def same_co(a, b):
+    """Normalized company keys of one employer: equal, or one is a prefix of the other ("principal" / "principalchi" /
+    "principalfin" -- jobright posted one Principal role under 5 names, Oct 22)."""
+    short, long_ = sorted((a, b), key=len)
+    return a == b or (len(short) >= 5 and long_.startswith(short))
+
+
+def seen_pair(key, pairs):
+    return key in pairs or any(t == key[1] and same_co(c, key[0]) for c, t in pairs)
+
+
 def notion_index():
     import notion
     rows = notion.recent_rows(35)
@@ -107,6 +118,10 @@ def main():
         try: fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             print('another fast_hunter run is active -> skipping this run'); return
+    import gen_v5
+    if not a.dry_run and not os.access(gen_v5.SOFFICE, os.X_OK):   # Oct 22: LibreOffice deleted -> 17 h of built=0
+        print(f'LibreOffice not found ({gen_v5.SOFFICE}): no resumes can be built -> skipping; '
+              'last_ok stays put so the next good run catches up'); return
     if not config.NOTION_TOKEN and not a.dry_run:
         print('NOTION_TOKEN is empty in .env -> running as --dry-run (no Notion writes, no LLM calls)')
         a.dry_run = True
@@ -179,11 +194,12 @@ def main():
     for r, j in fresh:
         try:
             key = (norm(r['company'])[:12], norm(r['title']))
-            if norm(r['url']) in links or key in pairs:
+            if norm(r['url']) in links or seen_pair(key, pairs):
                 stats['dupes'] += 1; continue
             pairs = set(pairs) | {key}   # same company + title twice in one run (multi-location reposts) -> build once
-            if per_co[key[0]] >= config.PER_COMPANY_WEEK:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
-                stats['dupes'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: already {per_co[key[0]]} roles this week"); continue
+            n_co = sum(n for c, n in per_co.items() if same_co(c, key[0]))
+            if n_co >= config.PER_COMPANY_WEEK:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
+                stats['dupes'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: already {n_co} roles this week"); continue
             if score.STAFFING.search(r['company']):
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']}: staffing repost"); continue
             j = j or JD.fetch(r['url'])
@@ -264,7 +280,7 @@ def build(r, j, sc, dry=False):
     posted = (j.get('posted').strftime('%Y-%m-%d %H:%M') if j.get('posted') else r['posted_utc'])
     src = r.get('source') + (f" ({minutes_ago(j.get('posted_label'))} min old)" if j.get('posted_label') and minutes_ago(j.get('posted_label')) else '')
     if r.get('first_seen'): src += ' (new since last scan; source shows date only)'
-    notes = ('FAST | ' + (f'INTERN {term} | ' if kind == 'intern' else '') + f"{src} | fit {sc['fit']} | match {sc['match']}% | evidence {sc['evidence']}%"
+    notes = ('FAST | ' + (f'INTERN {term} | ' if kind == 'intern' else '') + f"{src} | fit {sc['fit']} | match {sc['match']}% | evidence {sc['evidence']}% | resume {gen_v6.VERSION}"
              + (' | stretch' if sc['stretch'] else '') + (' | ELIGIBILITY? enrollment rule' if enroll else ''))
     item = dict(company=r['company'], title=r['title'], kind=kind, posted=posted, fit=sc['fit'], source=r.get('source'), link=r['url'], notes=notes)
     if dry:

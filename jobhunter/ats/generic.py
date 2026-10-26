@@ -4,9 +4,19 @@ import formfill
 from ats.common import captcha, needs_login, outcome, result, click_text
 
 MATCH = r'^$'
+# owner, Oct 22: small one-page ATSs with no adapter of their own -- filled here when their name is in APPLY_ATS_ONLY
+SMALL = {'rippling': r'ats\.rippling\.com', 'jazzhr': r'applytojob\.com', 'breezy': r'\.breezy\.hr', 'bamboohr': r'bamboohr\.com'}
+
+
+def small_ats(url):
+    import ats
+    return next((n for n, rx in SMALL.items() if n in ats.ONLY and re.search(rx, url or '', re.I)), None)
 
 
 def run(ctx, page, job):
+    u = page.url.split('?')[0].rstrip('/')
+    if re.search(r'\.breezy\.hr/p/[^/]+$', u):   # Breezy's Apply button opens a profile sign-in; /apply is the plain form
+        page.goto(u + '/apply', wait_until='domcontentloaded', timeout=60000); page.wait_for_timeout(3000)
     if captcha(page): return result('NEEDS YOU', 'CAPTCHA', page=page)
     # job page with an Apply button that reveals/opens the form
     # (no resume upload yet = not the form; a lone email box is usually a job-alert signup -- Enlyte Oct 12)
@@ -45,7 +55,8 @@ def run(ctx, page, job):
                 res = m.run(ctx, page, job); res['reason'] = f"via {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
                 return res
     import ats, sys
-    if not ats.allowed(sys.modules[__name__]) and not re.search(r'greenhouse\.io|ashbyhq\.com', formfill.form_frame(page).url or ''):
+    if not ats.allowed(sys.modules[__name__]) and not re.search(r'greenhouse\.io|ashbyhq\.com', formfill.form_frame(page).url or '') \
+            and not small_ats(formfill.form_frame(page).url or page.url):
         return ats.skipped(sys.modules[__name__], page)   # APPLY_ATS_ONLY: the company's own form is not on the list
     if needs_login(page): return result('NEEDS YOU', 'sign in / create account (tab open)', page=page)
     if captcha(page): return result('NEEDS YOU', 'CAPTCHA', page=page)

@@ -62,6 +62,10 @@ def split_terms(jd_text):
     return req, pref
 
 
+GENERIC_SCHOOL_WORDS = {'new', 'recent', 'career', 'early', 'graduate', 'grad', 'campus', 'hire', 'hires', 'program', 'engineer',
+                        'developer', 'software', 'intern', 'summer', 'the', 'and', 'for', 'level', 'entry'}
+
+
 def blocked(jd_text, title=''):
     t = (jd_text or '') + '\n' + title
     for rx, why in BLOCK:
@@ -78,6 +82,13 @@ def blocked(jd_text, title=''):
     if re.search(r'\bsenior\b|\bsr\.?\b|\bstaff\b|\bprincipal\b|\blead\b|\bmanager\b|\bdirector\b|\bii\b|\biii\b|'
                  r'\bvp\b|vice president|\bhead of\b|\bchief\b|\barchitect\b', title, re.I):
         return 'seniority'
+    # Oct 23: founding roles (SentiLink, Avent) rejected every time -- they hire experienced engineers
+    if re.search(r'\bfounding\b', title, re.I): return 'seniority'
+    # Oct 23: programs for one school's students ("Northeastern University Software Engineer Co-op")
+    m = re.search(r'\b([A-Z][\w&.-]+) (University|College)\b|\bUniversity of ([A-Z][\w-]+)', title)
+    school = m and (m.group(1) or m.group(3))
+    if school and school.lower() not in GENERIC_SCHOOL_WORDS and not re.search(re.escape(school), P.get('resume_v6', 'school', default=[''])[0] + ' ' + ' '.join(P.get('resume_v6', 'grad_school', default=[]) or []), re.I):
+        return 'other school only'
     # Oct 13: "Softgoods Product Design Engineer", "IT and Cyber Security - VP" were applied to -> non-software titles out
     if re.search(r'mechanical|electrical|hardware|softgoods|manufacturing|\bcivil\b|chemical|structural|mechatronic|'
                  r'product design engineer|process engineer|field service|technician', title, re.I) \

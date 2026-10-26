@@ -123,6 +123,18 @@ def resolve_offsite(company, title):
     return None
 
 
+def gone(page):
+    """The company page is a removed posting: Greenhouse ?error=true, Lever board root / 404, or 'job not found' text."""
+    u = page.url
+    if re.search(r'greenhouse\.io/.*[?&]error=true', u) or re.search(r'jobs\.lever\.co/[^/?#]+/?(\?|#|$)', u):
+        return True
+    try: title, head = page.title(), page.inner_text('body', timeout=5000)[:1500]
+    except Exception: return False
+    return bool(re.search(r'\b404\b|not found', title, re.I) or re.search(
+        r'page (you requested )?(was )?not found|job (is )?no longer (available|open)|position has been filled|'
+        r'no longer accepting applications|job not found|posting (has been )?closed', head, re.I))
+
+
 def route(ctx, li_page, company_page, job, how):
     """Hand the company page to its adapter and prefix the reason."""
     import ats
@@ -132,6 +144,8 @@ def route(ctx, li_page, company_page, job, how):
     dismiss_cookies(company_page)
     if re.search(r'linkedin\.com', company_page.url):
         return result('NEEDS YOU', 'LinkedIn: apply link did not leave LinkedIn (tab open)', page=li_page)
+    if gone(company_page):   # Oct 25: removed Lever (404 / board root) and Greenhouse (?error=true) jobs came back "0 fields filled"
+        return result('NEEDS YOU', f'posting closed (the {how} link leads to a removed job)', page=company_page)
     try:
         html = company_page.content()[:200000]
     except Exception:
