@@ -87,6 +87,19 @@ def dismiss_cookies(page):
                 b.first.click(timeout=3000); page.wait_for_timeout(600); return True
         except Exception:
             continue
+    # OneTrust (Oct 26, SuccessFactors): its reject buttons have no "Reject" role name in some skins, and an open
+    # preference center leaves a dark filter that swallows every click -> its own reject ids, else remove the overlay
+    # (no choice made = nothing accepted)
+    try:
+        for sel in ('#onetrust-reject-all-handler', '.ot-pc-refuse-all-handler', 'button.save-preference-btn-handler'):
+            b = page.locator(sel)
+            if b.count() and b.first.is_visible():
+                b.first.click(timeout=3000); page.wait_for_timeout(600); break
+        if page.locator('.onetrust-pc-dark-filter:visible, #onetrust-pc-sdk:visible').count():
+            page.evaluate("() => document.getElementById('onetrust-consent-sdk')?.remove()")
+            return True
+    except Exception:
+        pass
     return False
 
 

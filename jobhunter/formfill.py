@@ -171,7 +171,7 @@ CLEARANCE_ROLE = re.compile(r'(obtain|maintain|eligible (for|to obtain)|able to 
 NON_US_ROLE = re.compile(r'(eligible|authori[sz]ed|entitled|right|permit(ted)?) to (live and )?work in (canada|the uk|the united kingdom|ireland|germany|'
                          r'india|australia|the eu|europe|the netherlands|france|spain|poland|singapore|israel|mexico|brazil)|uk right to work|'
                          r'(canadian|uk|british|eu) (work permit|citizen(ship)? or)', re.I)
-CONSENT = re.compile(r'i (agree|acknowledge|certify|consent|attest|understand|confirm|have read)|code of conduct|terms|privacy|policy|consent|attest|certif|arbitrat|agreement|acknowledg|\be-?sign|confidentialit|j.ai lu|accepte|aviso de privacidad|acepto', re.I)   # +FR/ES (Unity Oct 13)   # \b: 'Object Oriented Design' is not e-sign
+CONSENT = re.compile(r'i (agree|acknowledge|certify|consent|attest|understand|confirm|have read)|code of conduct|truthful (and|&) complete|comply with (the |our )?(company|its)? ?(rules|policies)|terms|privacy|policy|consent|attest|certif|arbitrat|agreement|acknowledg|\be-?sign|confidentialit|j.ai lu|accepte|aviso de privacidad|acepto', re.I)   # +FR/ES (Unity Oct 13)   # \b: 'Object Oriented Design' is not e-sign
 
 LABEL_JS = r"""
 () => {
@@ -198,13 +198,16 @@ LABEL_JS = r"""
   };
   window.__jhLabel = labelOf;
   const out = []; let n = 0; const radios = {};
-  for (const el of document.querySelectorAll('input, textarea, select')) {
+  // data-jh-root (LinkedIn Easy Apply, Oct 26): read only the dialog, not the job page behind it (follow/alert boxes)
+  const root = document.querySelector('[data-jh-root]') || document;
+  for (const el of root.querySelectorAll('input, textarea, select')) {
     const type = (el.type || el.tagName).toLowerCase();
     if (['hidden', 'submit', 'button', 'image', 'reset'].includes(type)) continue;
     if (type === 'search' && el.getAttribute('role') !== 'combobox') continue;   // TikTok ud__select = search-type combobox
     if (type !== 'file' && !vis(el)) continue;
     if (el.tabIndex === -1 && el.tagName === 'INPUT' && type !== 'file' && type !== 'radio' && type !== 'checkbox' && el.getAttribute('role') !== 'combobox') continue;  // react-select shadow input
     if (el.getAttribute('aria-hidden') === 'true') continue;
+    if (el.disabled && type !== 'radio' && type !== 'checkbox') continue;   // Amplify Oct 26: "Still Student?" disables End Date -> not a question
     const entry = el.closest('[class*="field-entry"], [class*="fieldEntry"], fieldset');
     const title = entry && entry.querySelector('[class*="question-title"], legend');
     const req = el.required || el.getAttribute('aria-required') === 'true' || /\*\s*$/.test(labelOf(el))
@@ -233,11 +236,12 @@ LABEL_JS = r"""
     // checkbox groups = one question. Greenhouse: <fieldset class="checkbox"><legend> + inputs named "question_N[]";
     // Ashby: <fieldset class="...checkbox-group"> + a question-title label, inputs named after their option text (so
     // names can't be used there: "Other" repeats across questions)
-    const cg = type === 'checkbox' && (el.closest('fieldset[class*="checkbox-group"], fieldset.checkbox')
+    const cg = type === 'checkbox' && (el.closest('fieldset[class*="checkbox-group"], fieldset.checkbox, fieldset[data-automation-id$="CheckboxGroup"]')
       || (/\[\]$/.test(el.name || '') && document.querySelectorAll(`input[type="checkbox"][name="${CSS.escape(el.name)}"]`).length > 1 && el.closest('fieldset')));
     if (cg && cg.querySelectorAll('input[type="checkbox"]').length > 1) {
       // Twilio/Gallup/PMG Oct 13: each option was read as its own required checkbox -> "Careers Website (still empty)" x9
-      const ql = cg.querySelector('legend, [class*="question-title"]');
+      // Workday (Cohesity Oct 26): the question's <legend> sits on the OUTER fieldset around the CheckboxGroup
+      const ql = cg.querySelector('legend, [class*="question-title"]') || (cg.parentElement && cg.parentElement.closest('fieldset') || {querySelector: () => null}).querySelector('legend');
       const q = ql ? txt(ql) : '';
       if (!cg.dataset.jhg) cg.dataset.jhg = String(Object.keys(radios).length + 1);
       const g = 'cb:' + cg.dataset.jhg;
@@ -265,7 +269,7 @@ LABEL_JS = r"""
   for (const g of Object.values(radios)) out.push(g);
   // Ashby-style Yes/No button pairs (any nesting)
   const seenBox = new Set();
-  for (const yes of [...document.querySelectorAll('button')].filter(b => vis(b) && /^yes$/i.test(txt(b)))) {
+  for (const yes of [...root.querySelectorAll('button')].filter(b => vis(b) && /^yes$/i.test(txt(b)))) {
     let box = yes.parentElement, no = null;
     for (let i = 0; i < 3 && box && !no; i++, box = box.parentElement)
       no = [...box.querySelectorAll('button')].find(b => b !== yes && /^no$/i.test(txt(b)));
@@ -374,6 +378,10 @@ FALLBACK = [   # when the Answer Bank value matches no option (owner, Oct 19)
     (r'\bstate\b|region in which you', [r'another state|other (us |u\.s\. )?state|^other\b']),
     (r'how did you (hear|find|learn)|where did you (hear|find|see)|source', [r'linkedin', r'job ?board|online|website|career', r'^other\b']),
     (r'clearance', [r'^none\b|^no\b|no (active )?clearance|not applicable|^n/?a\b', r'do not wish|prefer not|decline']),
+    # school not in a plain <select> (Palantir/Lever "Please select Other (School Not Listed)", Oct 26); comboboxes do this in fill_pass
+    (r'^(?!.*high school).*(school|university|college|institution)', [r'^other\b.{0,30}(not (listed|found)|school)', r'^other\b']),
+    # "Do any of the following apply to you? (current employee / contractor / intern of X...)" (Workday Cohesity, Oct 26)
+    (r'(do|does) any of the following apply', [r'none of the (above|following)|^none\b|not applicable|^n/?a\b|does not apply|^no\b']),
     (r'\b(sat|act|gre|gmat|lsat)\b|standardized test', [r"did ?n.?o?t take|not taken|have not taken|do not recall|^n/?a\b|not applicable|^none\b"]),
 ]
 
@@ -567,7 +575,9 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                     done.append(label)
                 continue
             if d.get('value') and d['kind'] != 'select' and not _forced(label): continue        # already filled (e.g. by resume parse)
-            if CONSENT.search(label) and not (d['kind'] == 'input' and re.search(r'number|phone', label, re.I)):
+            # a QUESTION the Answer Bank answers is not an agreement (iCapital Oct 26: "...Non-Compete Agreement?" -> No)
+            if CONSENT.search(label) and not (d['kind'] == 'input' and re.search(r'number|phone', label, re.I)) \
+                    and not ('?' in label and rule_for(label)[0] is not None):
                 if consent_on() and d['kind'] == 'select':
                     o = next((x for x in d.get('options') or [] if AGREE.search(x)), None)
                     if o: loc.select_option(label=o); done.append(label + ' (consent)'); continue

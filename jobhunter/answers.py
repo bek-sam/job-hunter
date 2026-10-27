@@ -7,11 +7,13 @@ import json, re
 import config, llm, jd as JD, packet
 from gen_v5 import EDU, EXP, PROJ, AWARDS
 
+GUESS = ("Owner rule (Oct 26 2026): GUESS when the facts don't say -- preference, opinion, familiarity, platform usage, how-heard, availability, interest, yes/no screening and essay questions always get the most plausible answer that helps the application. Still NEVER invent verifiable facts (employers, titles, dates, degrees, schools, GPA, test scores, certifications, metrics) or legal status (citizenship, immigration, export control, criminal record, clearance): those come only from the facts, else null.")
+
 SYSTEM = (
     f"You fill job-application questions for {P.NAME} like a careful, strong applicant. "
     "Use ONLY the facts provided (Answer Bank, resume, project facts, JD). Never invent experience, employers, dates, "
     "metrics, users, deployments, referrals, people he knows, or prior interviews/applications. "
-    "If the facts do not let you answer truthfully, return null for that question (a human will answer it). "
+    f"{GUESS} "
     "Choice questions: answer with one option text copied EXACTLY from the given options, or null. "
     f"Years-of-experience questions: count only from the dated facts ({P.get('llm', 'experience_dates', default='see the work history')}); "
     "if the honest number is unclear, use the conservative whole number; if the "
@@ -91,7 +93,12 @@ def ask_cached(job, labels, lines):
     out = {'answers': [{'id': i, 'answer': known[l]} for i, l in enumerate(labels) if l in known]}
     if todo:
         answer_bank = (config.REF / 'Job Hunter — Answer Bank.md').read_text()[:14000]
-        prompt = (f"ANSWER BANK:\n{answer_bank}\n\nRESUME FACTS:\n{resume_facts()}\n\n"          # static -> cached prefix
+        # Oct 26: his own answers to questions the filler could not answer before (data/answer_log/needs_answers.md ->
+        # profile.json owner_answers); authoritative for the same question in other words
+        own = '\n'.join(f"- Q: {q}\n  A: {a}" for q, a in (P.get('owner_answers', default={}) or {}).items() if a and not q.startswith('_'))
+        prompt = (f"ANSWER BANK:\n{answer_bank}\n\n"
+                  + (f"HIS OWN ANSWERS (authoritative; use them whenever a question asks the same thing):\n{own}\n\n" if own else '')
+                  + f"RESUME FACTS:\n{resume_facts()}\n\n"          # static -> cached prefix
                   f"Application: {job.get('title') or ''} at {job.get('company') or ''}\n\nJOB DESCRIPTION (trimmed):\n{job['jd_text']}\n\n"
                   f"PROJECT FACTS:\n{packet.project_facts(job.get('title') or '', job['jd_text'])[:5000]}\n\n"
                   f"HIS HISTORY WITH THIS COMPANY (from his application tracker — use it for 'applied/interviewed/worked here "

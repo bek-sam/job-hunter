@@ -491,6 +491,10 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
         btn = scope.get_by_role('button', name=re.compile(r'^\s*submit', re.I))
         if not _vis(btn): btn = scope.get_by_role('button', name=re.compile(button_rx, re.I))
     if not _vis(btn): btn = scope.locator('button[type="submit"]:visible, input[type="submit"]:visible')
+    # JazzHR (Oct 26): "SUBMIT APPLICATION" is a link (a#resumator-submit-resume) -> ~12 complete forms never sent.
+    # Only links that say submit; never an "Apply" link (those just open/scroll to the form)
+    if not _vis(btn): btn = scope.locator('a#resumator-submit-resume:visible')
+    if not _vis(btn): btn = scope.get_by_role('link', name=re.compile(r'^\s*submit( (my |your )?application)?\s*$', re.I))
     if not _vis(btn):
         res.update(status='NEEDS YOU', reason='filled, but no Submit button found (tab open)'); return res
     try: btn.first.scroll_into_view_if_needed(timeout=3000)

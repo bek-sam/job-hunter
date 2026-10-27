@@ -8,6 +8,10 @@ MATCH = r'^$'
 SMALL = {'rippling': r'ats\.rippling\.com', 'jazzhr': r'applytojob\.com', 'breezy': r'\.breezy\.hr', 'bamboohr': r'bamboohr\.com'}
 
 
+KNOWN_ATS = (r'myworkdayjobs\.com|myworkdaysite\.com|icims\.com|lever\.co|ashbyhq\.com|greenhouse\.io|smartrecruiters\.com|'
+             r'taleo\.net|successfactors\.(com|eu)|oraclecloud\.com|eightfold\.ai|jobvite\.com|workable\.com|ats\.rippling\.com|applytojob\.com|bamboohr\.com')
+
+
 def small_ats(url):
     import ats
     return next((n for n, rx in SMALL.items() if n in ats.ONLY and re.search(rx, url or '', re.I)), None)
@@ -37,6 +41,17 @@ def run(ctx, page, job):
                 return a ? a.href : null; }""")
         except Exception:
             href = None
+        if not href:   # Oct 26: no "Apply" link -> a link/iframe to a known ATS (careers pages embedding Workday, iCIMS, Lever...)
+            try:
+                href = page.evaluate("""rx => { const re = new RegExp(rx, 'i');
+                    const f = [...document.querySelectorAll('iframe[src]')].find(e => re.test(e.src) && !/greenhouse\\.io\\/embed/i.test(e.src));
+                    if (f) return f.src;
+                    // exactly ONE distinct job link: a careers page listing several jobs must never send us to another job
+                    const a = [...new Set([...document.querySelectorAll('a[href^="http"]')].filter(e => e.offsetWidth && re.test(e.href)
+                        && /\\/(job|jobs|requisition|position|apply|posting|details|o)\\b|\\d{4,}/i.test(new URL(e.href).pathname)).map(e => e.href.split('#')[0]))];
+                    return a.length === 1 ? a[0] : null; }""", KNOWN_ATS)
+            except Exception:
+                href = None
         if href and href.split('#')[0] != page.url.split('#')[0]:
             page.goto(href, wait_until='domcontentloaded', timeout=60000); page.wait_for_timeout(3000)
         for rx in (() if page.url != start else (r'^apply( now| for this (job|position|role))?$', r'^apply\b', r'start (your )?application', r'i.?m interested')):
@@ -55,6 +70,8 @@ def run(ctx, page, job):
                 res = m.run(ctx, page, job); res['reason'] = f"via {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
                 return res
     import ats, sys
+    if re.search(SMALL['breezy'], formfill.form_frame(page).url or page.url, re.I):   # Oct 22: labels misread -> wrong answers
+        return result('SKIPPED', 'Breezy: auto-apply off until its label reading is fixed', page=page)
     if not ats.allowed(sys.modules[__name__]) and not re.search(r'greenhouse\.io|ashbyhq\.com', formfill.form_frame(page).url or '') \
             and not small_ats(formfill.form_frame(page).url or page.url):
         return ats.skipped(sys.modules[__name__], page)   # APPLY_ATS_ONLY: the company's own form is not on the list

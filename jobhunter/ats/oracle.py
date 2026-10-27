@@ -1,11 +1,11 @@
 """Oracle Recruiting Cloud / HCM Candidate Experience (*.oraclecloud.com/hcmUI/CandidateExperience; JPMorgan,
 Oracle, Texas Instruments, Ford, Goldman higher.gs.com). Flow: Apply -> email page (+ legal disclaimer checkbox,
 hCaptcha) -> one-time code -> multi-section form -> e-signature -> Submit.
-We type the email only. The disclaimer box (consent), the one-time code and any CAPTCHA are his -> NEEDS YOU.
+We type the email; the disclaimer box needs AUTO_CONSENT=1 and the one-time code AUTO_VERIFY=1 (else NEEDS YOU); CAPTCHA -> NEEDS YOU.
 If a session already exists (he verified earlier), the sections are filled and we stop before Submit."""
 import applicant as P
-import re
-import formfill, config
+import re, time
+import auth, formfill, config
 from ats import _guard
 from ats.common import captcha, outcome, result, click_text, safe_next, body_text
 
@@ -23,13 +23,25 @@ def run(ctx, page, job):
         if not em.first.input_value(): em.first.fill(getattr(config, 'LOGIN_EMAIL', P.EMAIL))
         box = page.locator('#legal-disclaimer-checkbox, input[type="checkbox"][id*="disclaimer" i]')
         need = []
+        # Oct 26 (owner: auto-apply everywhere): AUTO_CONSENT ticks the disclaimer, AUTO_VERIFY enters the emailed code
         if box.count() and not box.first.is_checked():
-            need.append('tick the legal disclaimer (legal/consent — yours)')
-        need.append('click NEXT, then enter the one-time code Oracle emails you')
+            if formfill.consent_on(): formfill.tick(page.main_frame, box.first)
+            if not box.first.is_checked(): need.append('tick the legal disclaimer (legal/consent — yours)')
         if captcha(page): need.append('CAPTCHA')
-        return result('NEEDS YOU', 'Oracle: email entered — ' + '; '.join(need) + ' (tab open)', ['Email'], need, page)
+        if need or not auth.ON('AUTO_VERIFY'):
+            need.append('click NEXT, then enter the one-time code Oracle emails you')
+            return result('NEEDS YOU', 'Oracle: email entered — ' + '; '.join(need) + ' (tab open)', ['Email'], need, page)
+        t0 = time.time()
+        if not click_text(page, r'^\s*(next|continue)\s*$'):
+            return result('NEEDS YOU', 'Oracle: email entered, NEXT button not found (tab open)', ['Email'], [], page)
+        page.wait_for_timeout(5000)
+        if captcha(page): return result('NEEDS YOU', 'Oracle: CAPTCHA (tab open)', page=page)
     if re.search(r'verification code|one-time|pin code|enter the code', body_text(page, 6000), re.I):
-        return result('NEEDS YOU', 'Oracle: enter the one-time code from your email (tab open)', page=page)
+        v = auth.complete_verification(ctx, page, 'Oracle job application one-time code / PIN' + (f" ({job.get('company')})" if job.get('company') else ''),
+                                       locals().get('t0') or time.time() - 600)
+        page.wait_for_timeout(4000)
+        if v != 'ok' or re.search(r'verification code|one-time|pin code|enter the code', body_text(page, 6000), re.I):
+            return result('NEEDS YOU', f'Oracle: enter the one-time code from your email (auto: {v}) (tab open)', page=page)
     if captcha(page): return result('NEEDS YOU', 'Oracle: CAPTCHA (tab open)', page=page)
     # signed-in application form: sections on one long page, sometimes split into steps
     done, unknown = [], []

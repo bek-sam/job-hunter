@@ -170,6 +170,10 @@ FIELDS_JS = r"""
       const opts = [...radios].map(r => { const l = document.querySelector(`label[for="${CSS.escape(r.id)}"]`); return txt(l) || r.value; });
       out.push({tag, kind, label, required, aid, value, options: opts}); continue; }
     else if (date) { kind = 'date'; value = [...box.querySelectorAll('input')].map(i => i.value).join('/').replace(/^\/+|\/+$/g, ''); }
+    else if (cbs.length > 1) {   // Oct 26: a checkbox GROUP is one question (Cohesity "Do any of the following apply?")
+      value = [...cbs].some(c => c.checked) ? 'x' : '';
+      const opts = [...cbs].map(c => { const l = document.querySelector(`label[for="${CSS.escape(c.id)}"]`); return txt(l) || c.value; });
+      out.push({tag, kind: 'checks', label, required, aid, value, options: opts}); continue; }
     else if (cbs.length) { kind = 'checkbox'; value = [...cbs].some(c => c.checked) ? 'x' : ''; }
     else if (ta) { kind = 'textarea'; value = ta.value; inputId = ta.id; }
     else if (inp) { kind = 'text'; value = inp.value; inputId = inp.id || inp.name || ''; }
@@ -335,6 +339,25 @@ def _tick(page, box):
     except Exception: return False
 
 
+def _tick_option(page, box, text):
+    """Tick the checkbox of one group option by its label text."""
+    for i, cb in enumerate(box.locator('input[type="checkbox"]').all()):
+        cid = cb.get_attribute('id') or ''
+        lab = page.locator(f'label[for="{cid}"]') if cid else None
+        if lab is not None and lab.count() and (lab.first.inner_text() or '').strip() == text.strip():
+            for how in ('label', 'js'):
+                try:
+                    if cb.is_checked(): return True
+                    if how == 'label': lab.first.click(timeout=3000)
+                    else: cb.evaluate('e => { e.click(); e.dispatchEvent(new Event("change", {bubbles: true})); }')
+                    page.wait_for_timeout(300)
+                except Exception:
+                    continue
+            try: return cb.is_checked()
+            except Exception: return False
+    return False
+
+
 def _dropdown_options(page, box):
     try:
         btn = box.locator('button[aria-haspopup="listbox"]').first
@@ -366,6 +389,7 @@ def llm_fill(page, pending, job):
             if f['kind'] == 'dropdown': ok = pick_dropdown(page, box, a, exact)
             elif f['kind'] == 'multiselect': ok = pick_multiselect(page, box, a, exact)
             elif f['kind'] == 'radio': ok = pick_radio(box, f['options'], a, exact)
+            elif f['kind'] == 'checks': ok = _tick_option(page, box, a)
             elif f['kind'] in ('text', 'textarea'):
                 inp = box.locator('textarea' if f['kind'] == 'textarea' else 'input').first
                 inp.fill(a); inp.press('Tab')
@@ -393,6 +417,13 @@ def fill_step(page, job):
             continue   # the resume upload is handled by autofill_step / the My Experience upload code
         if re.match(r'(workexperience|education|language|certification)-\d+', (f.get('inputId') or f.get('aid') or '').lower()):
             continue   # entries are handled by fill_work / fill_education (they know the real history)
+        if f['kind'] == 'checks':   # one option of a checkbox group -- never "the first box" (that ticked "Current employee")
+            if f['value']: continue
+            val, opt = answer_for(f)
+            o = formfill.choose(label, f['options'], opt, val)
+            if o and _tick_option(page, box, o): done.append(label); continue
+            if f['required']: unknown.append(label); pending.append(f)
+            continue
         if f['kind'] == 'checkbox':
             if not f['value'] and formfill.consent_on() and (f['required'] or formfill.CONSENT.search(label)):
                 if _tick(page, box): done.append(label + ' (consent)'); continue

@@ -217,6 +217,53 @@ def confirmed_by_email(r, wait_s=90):
     return None
 
 
+RECHECKS = config.DATA / 'confirm_rechecks.json'
+
+
+def recheck_unconfirmed(max_checks=4):
+    """Oct 26: ~100 rows (Oct 20-26) ended "clicked Submit, no confirmation" after the single 90 s Gmail look, while
+    many confirmation emails arrive minutes later. Look again ~10 min and ~60 min after the Submit click; a confirmation
+    marks the row Applied (apply_results + submissions.jsonl + Notion). Read-only Gmail, haiku, <= max_checks per run."""
+    try: state = json.loads(RECHECKS.read_text())
+    except Exception: state = {}
+    now = dt.datetime.now(CT)
+    rows, subs = {}, set()
+    for line in (config.DATA / 'apply_results.jsonl').read_text().splitlines()[-3000:]:
+        try: d = json.loads(line)
+        except Exception: continue
+        if not d.get('id'): continue
+        if d['status'] == 'SUBMITTED': subs.add(d['id']); rows.pop(d['id'], None)
+        elif 'no confirmation' in (d.get('reason') or '') and d['id'] not in subs:
+            rows[d['id']] = d
+    n = 0
+    for pid, d in rows.items():
+        age = (now - dt.datetime.fromisoformat(d['at'])).total_seconds() / 60
+        done = state.get(pid, [])
+        due = (len(done) == 0 and age >= 10) or (len(done) == 1 and age >= 60)
+        if age > 24 * 60 or len(done) >= 2 or not due: continue
+        if n >= max_checks: break
+        n += 1
+        state[pid] = done + [now.isoformat(timespec='seconds')]
+        RECHECKS.write_text(json.dumps(state))
+        ok = confirmed_by_email({'Company': d.get('company')}, wait_s=0)
+        print(f"recheck {d.get('company')}: {ok or 'no confirmation yet'}")
+        if not ok: continue
+        try:
+            with open(config.DATA / 'apply_results.jsonl', 'a') as fh:
+                fh.write(json.dumps({'at': now.isoformat(timespec='seconds'), 'id': pid, 'company': d.get('company'),
+                                     'ats': d.get('ats'), 'status': 'SUBMITTED', 'reason': ok + ' (late recheck)'}) + '\n')
+            r = notion.flat(notion._req('GET', f'/pages/{pid}'))
+            with open(config.DATA / 'submissions.jsonl', 'a') as fh:
+                fh.write(json.dumps({'at': now.isoformat(), 'company': d.get('company'), 'role': r.get('Position'),
+                                     'ats': d.get('ats'), 'note': 'confirmed by a late Gmail recheck'}) + '\n')
+            if r.get('Status') in ('Needs you', 'To apply'):
+                note = f"APPLIED {now.strftime('%b %d %I:%M %p CT')} (auto-submitted, {d.get('ats')}; {ok})"
+                notion.update_row(pid, notion.props(Notes=(note + ' | ' + (r.get('Notes') or ''))[:1990], Status='Applied',
+                                                    DateApplied=now.strftime('%Y-%m-%d')))
+        except Exception as e:
+            print('recheck update failed:', str(e)[:120])
+
+
 def recent_fails(hours=48):
     """Row id -> number of non-submitted outcomes in the last `hours` (data/apply_results.jsonl)."""
     out, since = {}, dt.datetime.now(CT) - dt.timedelta(hours=hours)
@@ -231,6 +278,28 @@ def recent_fails(hours=48):
     except FileNotFoundError:
         pass
     return out
+
+
+def save_failure(r, res):
+    """Oct 26: every row that stops short keeps a screenshot, the page HTML and its still-empty required labels in
+    data/failures/<date>/ -- "only 2 fields filled" alone never said WHICH field broke. Never raises."""
+    try:
+        pg = res.get('page')
+        if not pg or pg.is_closed(): return None
+        d = config.DATA / 'failures' / dt.datetime.now(CT).strftime('%Y-%m-%d'); d.mkdir(parents=True, exist_ok=True)
+        base = d / (re.sub(r'\W+', '_', (r.get('Company') or 'x'))[:40] + '_' + (r.get('id') or 'test')[-8:] + dt.datetime.now(CT).strftime('_%H%M'))
+        pg.screenshot(path=str(base) + '.png', full_page=True, timeout=15000)
+        fr = formfill.form_frame(pg)
+        (base.parent / (base.name + '.html')).write_text(fr.content()[:3000000])
+        meta = {'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'id': r.get('id'), 'company': r.get('Company'),
+                'role': r.get('Position'), 'ats': res.get('ats'), 'status': res['status'], 'reason': res.get('reason'),
+                'url': pg.url, 'frame_url': fr.url, 'done': res.get('done'), 'unknown': res.get('unknown'),
+                'still_empty': formfill.still_empty(fr)}
+        (base.parent / (base.name + '.json')).write_text(json.dumps(meta, indent=1, ensure_ascii=False))
+        return base
+    except Exception as e:
+        print('failure capture failed:', str(e)[:120])
+        return None
 
 
 def mark_attempt(page_id):
@@ -584,6 +653,9 @@ def main():
         rows = [r for r in notion.rows_for_company(a.only) if r.get('Status') in ('To apply', 'Needs you')][:a.max]
     else:
         rows = [dict(id=a.page, Link=a.url, Company='(test)', Position='', Notes='')] if a.url else rows_to_fill()[:a.max]
+    if not (a.url or a.dry or a.ids or a.only or a.ats):
+        try: recheck_unconfirmed()
+        except Exception as e: print('confirmation recheck failed:', str(e)[:120])
     if not rows: print('Nothing to fill.'); return
     # one apply run at a time: two CDP clients on the apply Chrome hang/reset each other (Oct 12 19:40)
     import fcntl
@@ -621,6 +693,12 @@ def main():
                 _ = ctx.pages
             except Exception:
                 b, ctx = browser.connect(p); ctx.set_default_timeout(30000)
+            tracing = False
+            if not a.dry:   # Oct 26: Playwright trace per row, kept only for rows that stop short (save_failure)
+                try: ctx.tracing.stop()   # a row that left early (rate-limit `continue`) may still be tracing
+                except Exception: pass
+                try: ctx.tracing.start(screenshots=True, snapshots=True, sources=False); tracing = True
+                except Exception as e: print('trace start failed:', str(e)[:100])
             try:
                 files = job_files(r, a.pdf) if (r.get('id') or a.pdf) else dict(pdf=None, docx=None, cover_txt=None, cover_text='')
                 res = run_one(ctx, r, files, a.dry)
@@ -714,6 +792,10 @@ def main():
                 except Exception:
                     pass
                 notion.update_row(r['id'], upd)
+            base = save_failure(r, res) if not a.dry and res['status'] in ('NEEDS YOU', 'ERROR', 'FILLED') else None
+            if tracing:
+                try: ctx.tracing.stop(path=str(base) + '.trace.zip') if base else ctx.tracing.stop()
+                except Exception as e: print('trace stop failed:', str(e)[:100])
             # Close the form tabs after each row (Oct 12: filled forms left open submitted themselves 30 s - 3 min later).
             # Oct 13 (owner): a stopped NEEDS-YOU form stays OPEN for him to fix by hand (KEEP_TABS, max 20) and is
             # listed in data/kept_tabs.jsonl + its Notion note; everything else is closed.
@@ -734,6 +816,10 @@ def main():
         notify.push((f"{len(sent)} submitted: {', '.join(sent)} | " if sent else '')
                     + f"{len(ready)} ready to submit: {', '.join(ready)} | {len(need)} need you: {', '.join(need)}")
     if not a.dry:
+        try:   # Oct 26: refresh the answer-once list (data/answer_log/needs_answers.md, 0 tokens)
+            import needs_answers; needs_answers.main()
+        except Exception as e:
+            print('needs_answers failed:', str(e)[:120])
         try:   # keep the Q&A database (data/applications.db) current after every run (0 tokens, ~1 s)
             import qa_db; qa_db.build(quiet=True)
         except Exception as e:

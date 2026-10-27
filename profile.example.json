@@ -694,7 +694,9 @@
     1.0
    ]
   },
-  "projects_only": ["Project A"],
+  "projects_only": [
+   "Project A"
+  ],
   "lead": [],
   "always_pins_entry": "",
   "header_city_default": "Springfield, IL",
@@ -749,5 +751,8 @@
   ],
   "unproven_max": 0
  },
- "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them."
+ "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them.",
+ "owner_answers": {
+  "_how": "Answers to questions from data/answer_log/needs_answers.md: \"question text\": \"your answer\". Used by answers.py for the same question on any site."
+ }
 }

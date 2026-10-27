@@ -263,7 +263,11 @@ def easy_apply(ctx, page, job, btn):
                 fileinp.first.set_input_files(job['pdf']); page.wait_for_timeout(2500); done.append('Resume (uploaded)')
         except Exception:
             pass
+        try: dlg.evaluate("e => e.setAttribute('data-jh-root', '')")   # fill/log only the dialog (Oct 26: the log held the page's follow/alert boxes)
+        except Exception: pass
         d, u = formfill.fill(page.main_frame, dict(job, pdf=None))   # never re-upload via generic file inputs
+        try: dlg.evaluate("e => e.removeAttribute('data-jh-root')")
+        except Exception: pass
         done += [x for x in d if x not in done]
         legal = [x for x in u if 'legal/consent' in x]
         try:
