@@ -26,15 +26,18 @@ def _file_url(b):
 
 def read(page_id):
     blocks = children(page_id)
-    pdf = docx = None; cover = []; in_cover = False
+    pdf = docx = None; cover = []; in_cover = False; fresh = False
     for b in blocks:
         t = b['type']
         if t in ('pdf', 'file'):
             url, name = _file_url(b)
-            if url and (name.lower().endswith('.pdf') or t == 'pdf') and not pdf: pdf = url
-            elif url and name.lower().endswith('.docx') and not docx: docx = url
+            # files under the newest "Tailored resume" heading win (regen.py appends a rebuilt resume at the end)
+            if url and (name.lower().endswith('.pdf') or t == 'pdf') and (not pdf or fresh): pdf = url
+            elif url and name.lower().endswith('.docx') and (not docx or fresh): docx = url
         elif t.startswith('heading'):
-            in_cover = 'cover letter' in _text(b).lower()
+            h = _text(b).lower()
+            in_cover = 'cover letter' in h
+            fresh = 'tailored resume' in h and ' v6.' in h
         elif in_cover and t in ('paragraph', 'bulleted_list_item'):
             cover.append(_text(b))
     return dict(pdf=pdf, docx=docx, cover_letter='\n\n'.join(c for c in cover if c.strip()))

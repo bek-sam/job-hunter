@@ -36,10 +36,14 @@ SKIP = re.compile(r'(senior|\bsr\.?\b|staff|principal|\blead\b|manager|director|
                   r'1[0-9]\+? years|inspector|plumber|checker)', re.I)
 ENTRY = re.compile(r'(new ?grad|graduate|entry|early career|early-career|junior|\bjr\b|associate|university|campus|college|'
                    r'\bi\b\s*$|\bi\b[,(\-–]|engineer i\b|level 1|\bl1\b|2026|2027|apprentice|rotational|emerging talent|residency)', re.I)
-NON_US = re.compile(r'(canada|toronto|vancouver|montreal|ottawa|\buk\b|united kingdom|london|england|ireland|dublin|belfast|leeds|manchester|edinburgh|scotland|india|bangalore|'
+NON_US = re.compile(r'(canada|toronto|vancouver|montreal|ottawa|\buk\b|united kingdom|london|england|ireland|dublin|belfast|leeds|manchester|edinburgh|scotland|\bindia\b|bangalore|'
                     r'bengaluru|hyderabad|pune|chennai|germany|berlin|munich|france|paris|netherlands|amsterdam|poland|spain|'
                     r'singapore|japan|tokyo|china|shanghai|beijing|hong kong|taiwan|korea|australia|sydney|mexico|brazil|'
-                    r'\bind\b|israel|tel aviv|switzerland|zurich|sweden|romania|serbia|philippines|vietnam|argentina|colombia|emea|apac|latam)', re.I)
+                    r'\bind\b|israel|tel aviv|switzerland|zurich|sweden|romania|serbia|philippines|vietnam|argentina|colombia|emea|apac|latam|'
+                    r'lausanne|geneva|malaysia|kuala lumpur|south america|latin america|chile|peru|uruguay|costa rica|portugal|lisbon|italy|'
+                    r'gurgaon|gurugram|noida|mumbai|delhi|ukraine|czech|prague|hungary|budapest|denmark|copenhagen|norway|finland|'
+                    r'belgium|austria|vienna|warsaw|krakow|bucharest|egypt|nigeria|kenya|pakistan|indonesia|thailand|new zealand|'
+                    r'dubai|\buae\b|turkey|istanbul|estonia|lithuania|bulgaria|greece|cyprus|mauritius|ebene|south africa|morocco)', re.I)
 US = re.compile(r'(united states|\busa\b|\bu\.s\.|\bus\b|remote|anywhere|, ?(al|ak|az|ar|ca|co|ct|de|dc|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|'
                 r'ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy)\b|new york|nyc|'
                 r'san francisco|seattle|austin|boston|chicago|los angeles|san jose|palo alto|mountain view|sunnyvale|menlo park|'
@@ -84,6 +88,16 @@ def iso(s):
 DEFENSE = re.compile(r'(lockheed|l3harris|northrop|\bngc\b|booz allen|caci|national security agency|raytheon|\brtx\b|general dynamics|'
                      r'leidos|\bsaic\b|\bbae\b|frontier technology|mach industries|anduril|huntington ingalls|peraton|mitre|parsons|amentum|\bpae\b|accenture federal)', re.I)
 
+def foreign(loc):
+    """Location names a non-US place and no US one. "Remote" alone is not a US place: "Remote Canada", "India remote
+    India", "Lausanne remote Switzerland" were all applied to (Oct 28 review) because US matched the word remote."""
+    if not loc or not NON_US.search(loc): return False
+    rest = re.sub(r'remote|anywhere', ' ', loc, flags=re.I)
+    if re.search(r'\bindia\b|bangalore|bengaluru|hyderabad|pune|chennai|gurgaon|gurugram|noida|mumbai|delhi', loc, re.I):
+        rest = re.sub(r',\s*IN\b', ' ', rest)   # "Bangalore, IN" is India, not Indiana
+    return not US.search(rest)
+
+
 def non_us_title(title):
     """A non-US place named in the title's location part ("... - Leeds, United Kingdom", "(London)"), not "India Payments"."""
     parts = re.split(r'\s[-–—|@]\s|[,(/]', title or '', maxsplit=1)
@@ -100,7 +114,7 @@ def other_school_program(title):
 
 def want(title, loc, co=''):
     if not ROLE.search(title) or SKIP.search(title): return None
-    if loc and NON_US.search(loc) and not US.search(loc): return None
+    if foreign(loc): return None
     if non_us_title(title) or other_school_program(title): return None   # Oct 19: "Software Engineer - Leeds, United Kingdom" had no loc
     if loc and not US.search(loc) and not re.search(r'remote', loc, re.I): return None
     if DEFENSE.search(co): return 'D'            # defense: usually US-citizen / clearance -> check JD, low priority
@@ -211,6 +225,8 @@ def trackers(cut, simplify):
     out = []
     for x in simplify:   # Simplify: exact epoch time
         if x.get('active') and max(x.get('date_posted', 0), x.get('date_updated', 0) if False else 0) >= cut:
+            if 'citizenship' in str(x.get('sponsorship', '')).lower(): continue   # Oct 28: same skips as intern_hunt.py
+            if x.get('degrees') and not any('bachelor' in d.lower() for d in x['degrees']): continue
             out.append(('simplify', x['company_name'], x['title'], '; '.join(x.get('locations', [])), x['url'], x['date_posted']))
     today = dt.datetime.now(dt.timezone.utc).strftime('%b %d')
     for u in TRACKERS_MD:   # markdown lists: rows dated today / 0d

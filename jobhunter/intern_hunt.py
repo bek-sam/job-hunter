@@ -32,7 +32,7 @@ def iwant(title, loc, co=''):
     if ISKIP.search(title) or OLD_TERM.search(title): return None
     if NOT_SW.search(title) and not CORE.search(title): return None
     if re.search(r'research|chemistry|biology', title, re.I) and not re.search(r'software|engineer', title, re.I): return None
-    if loc and hunt.NON_US.search(loc) and not hunt.US.search(loc): return None
+    if hunt.foreign(loc): return None
     if loc and not hunt.US.search(loc) and not re.search(r'remote', loc, re.I): return None
     return 'D' if hunt.DEFENSE.search(co) else 'I'
 

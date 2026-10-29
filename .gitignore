@@ -12,3 +12,10 @@ PLAN.md
 __pycache__/
 *.pyc
 .DS_Store
+
+# --- vendor: only the files the code reads (career_eval.py) + license ---
+vendor/career-ops/*
+!vendor/career-ops/LICENSE
+!vendor/career-ops/modes/
+vendor/career-ops/modes/*
+!vendor/career-ops/modes/_shared.md

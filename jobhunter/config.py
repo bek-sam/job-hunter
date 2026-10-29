@@ -52,10 +52,18 @@ WINDOW_MIN = int(os.environ.get('WINDOW_MIN', '20'))     # runs every 15 min (Oc
 FRESH_MIN = int(os.environ.get('FRESH_MIN', '60'))
 MAX_CATCHUP_MIN = int(os.environ.get('MAX_CATCHUP_MIN', '1440'))   # auto catch-up looks back at most 24 h
 FIT_GATE = int(os.environ.get('FIT_GATE', '70'))
-PER_COMPANY_WEEK = int(os.environ.get('PER_COMPANY_WEEK', '2'))   # max new roles per company per 7 days (Oct 13)
+CAREER_EVAL = os.environ.get('CAREER_EVAL', '1') == '1'        # Career-Ops LLM evaluation after FIT_GATE (Oct 28 2026)
+EVAL_GATE = float(os.environ.get('EVAL_GATE', '4.0'))          # Career-Ops: apply only at >= 4.0 / 5
+EVAL_MODEL = os.environ.get('EVAL_MODEL', 'sonnet')
+# Oct 28: one application per company per 30 days (was 2 per 7 days: 323 of 1,112 submissions were repeat companies,
+# SpaceX x10, Notion x8 -- recruiters read that as spam; SpaceX rejected on "application limit exceeded")
+PER_COMPANY_MAX = int(os.environ.get('PER_COMPANY_MAX', '1'))
+PER_COMPANY_DAYS = int(os.environ.get('PER_COMPANY_DAYS', '30'))
 # 'all' = pass every JD tech term to the generator (same as the cloud Fast Hunter);
-# 'evidence' = only terms he has real evidence for
-SKILLS_MODE = os.environ.get('SKILLS_MODE', 'all')
+# 'evidence' = only terms he has real evidence for (default since Oct 28: a 40-tool list read as keyword stuffing)
+SKILLS_MODE = os.environ.get('SKILLS_MODE', 'evidence')
+# Oct 28: only core SWE titles (software / full-stack / backend / frontend / web / mobile / iOS / AI-ML); 0 = old scoring only
+TITLE_STRICT = os.environ.get('TITLE_STRICT', '1') == '1'
 
 # Playwright apply browser: a separate Chrome profile you sign into once (Workday, Greenhouse, ...)
 CHROME_PROFILE = pathlib.Path(os.environ.get('CHROME_PROFILE', str(pathlib.Path.home() / '.jobhunter' / 'chrome-profile')))

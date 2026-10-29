@@ -23,6 +23,27 @@ NEXT_RX = re.compile(r'^\s*(next|continue|review|review your application|continu
 
 
 # ---------------- helpers ----------------
+LIMIT_RX = re.compile(r"exceeded the daily application limit|reached (the|your) daily (application )?limit|limit daily submissions", re.I)
+
+
+def _jitter(page, lo=1500, hi=3500):
+    """Random human-like pause instead of a fixed wait (anti-ban idea from wodsuz / beatwad bots)."""
+    import random
+    page.wait_for_timeout(random.randint(lo, hi))
+
+
+def mark_daily_limit():
+    """LinkedIn said the Easy Apply daily limit is reached: apply_prep skips LinkedIn until tomorrow (GodsScion idea)."""
+    import datetime as dt, config
+    (config.DATA / 'linkedin_limit_day.txt').write_text(dt.date.today().isoformat())
+
+
+def limited_today():
+    import datetime as dt, config
+    try: return (config.DATA / 'linkedin_limit_day.txt').read_text().strip() == dt.date.today().isoformat()
+    except Exception: return False
+
+
 def job_id(url):
     m = re.search(r'/jobs/view/(?:[\w%-]*-)?(\d{6,})', url) or re.search(r'currentJobId=(\d{6,})', url)
     return m and m.group(1)
@@ -279,6 +300,14 @@ def easy_apply(ctx, page, job, btn):
         if b is None:
             return outcome(done, unknown + step_unknown + ['LinkedIn modal: no Next/Submit button found'], page)
         if SUBMIT_RX.search(label):
+            try:   # GodsScion idea: don't auto-follow every company (profile.json linkedin_follow_companies, default false)
+                import applicant as P
+                if not P.get('linkedin_follow_companies', default=False):
+                    fc_box = dlg.locator('#follow-company-checkbox')
+                    if fc_box.count() and fc_box.first.is_checked():
+                        dlg.locator('label[for="follow-company-checkbox"]').first.click(); done.append('Follow company: unchecked')
+            except Exception:
+                pass
             # final step: stop BEFORE "Submit application" -- never clicked. Without our upload LinkedIn would send the
             # old resume saved on the profile, so that must stay with him (says so plainly instead of "only N fields")
             if job.get('pdf') and not any(str(x).startswith('Resume') for x in done):
@@ -292,8 +321,15 @@ def easy_apply(ctx, page, job, btn):
             before = dlg.inner_text()[:3000]
         except Exception:
             before = ''
+        _jitter(page, 600, 1800)   # human pacing before clicking Next
         b.click(timeout=8000)
-        page.wait_for_timeout(2000)
+        _jitter(page, 1800, 3500)
+        try:
+            if LIMIT_RX.search(page.locator('body').inner_text()[:20000]):
+                mark_daily_limit()
+                return outcome(done, unknown + ['LinkedIn: daily Easy Apply limit reached (LinkedIn skipped until tomorrow)'], page)
+        except Exception:
+            pass
         try:
             after = dlg.inner_text()[:3000]
         except Exception:
@@ -318,7 +354,12 @@ def run(ctx, page, job):
         return result('NEEDS YOU', 'LinkedIn: no longer accepting applications (posting CLOSED)', page=page)
 
     if signed_in(page):
-        page.wait_for_timeout(1500)
+        _jitter(page, 1200, 2600)
+        m = re.search(r'applied (\d+) (minute|hour|day|week|month)s? ago', body_text(page, 8000), re.I)   # beatwad idea
+        if m:
+            return result('NEEDS YOU', f'LinkedIn shows you already applied {m.group(1)} {m.group(2)}(s) ago — set Status = Applied', page=page)
+        if limited_today():
+            return result('NEEDS YOU', 'LinkedIn daily Easy Apply limit reached today — retried tomorrow', page=page)
         easy = page.locator('button.jobs-apply-button[aria-label*="Easy Apply" i], button[aria-label*="Easy Apply" i]')
         if not (easy.count() and easy.first.is_visible()):
             easy = page.get_by_role('button', name=re.compile(r'^\s*easy apply', re.I))

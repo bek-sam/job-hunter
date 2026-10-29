@@ -560,7 +560,14 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                     elif d.get('required'): unknown.append(label + ' (transcript file missing)')
                     continue
                 if re.search(r'resume|cv\b|curriculum', key, re.I) and resume_pdf:
-                    loc.set_input_files(resume_pdf); done.append('Resume')
+                    loc.set_input_files(resume_pdf)
+                    from ats.common import upload_ok   # Oct 28: confirm the file really attached; retry once
+                    if not upload_ok(f, loc, resume_pdf):
+                        try: loc.set_input_files(resume_pdf)
+                        except Exception: pass
+                        if not upload_ok(f, loc, resume_pdf):
+                            unknown.append('Resume upload not confirmed (check the file)'); continue
+                    done.append('Resume')
                 continue
             if d['type'] == 'checkbox':
                 if CONSENT.search(label):

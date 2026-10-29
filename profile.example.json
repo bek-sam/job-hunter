@@ -1,758 +1,764 @@
 {
- "_about": "TEMPLATE. Copy to profile.json (git-ignored) and replace every value with your own. Values are answers about YOU; the code only holds label patterns. Delete a key to leave that question for you to answer by hand (NEEDS YOU). Answer lists are [value, option-regex]: the regex picks the matching option in dropdowns/radios.",
- "identity": {
-  "first": "Jane",
-  "last": "Doe",
-  "full": "Jane Doe",
-  "email": "jane.doe@example.com",
-  "phone": "(555) 010-0000",
-  "linkedin": "linkedin.com/in/janedoe",
-  "github": "github.com/janedoe",
-  "website": "janedoe.dev",
-  "city": "Springfield",
-  "state": "Illinois",
-  "state_abbr": "IL",
-  "location": "Springfield, IL",
-  "home_area_rx": "springfield|illinois|\\bil\\b",
-  "languages_spoken_rx": "english",
-  "workday_self_id_name": "Jane Doe",
-  "preferred_locations_rx": "springfield|illinois|\\bil\\b|remote"
- },
- "answers": {
-  "full_name_first_last": "Jane Doe",
-  "first_name": "Jane",
-  "last_name": "Doe",
-  "preferred_name": "Jane",
-  "full_name": "Jane Doe",
-  "email": "jane.doe@example.com",
-  "sms_phone": "(555) 010-0000",
-  "phone_country_code": [
-   "United States (+1)",
-   "^united states\\b(?! minor)|^usa?$|^usa? ?\\(\\+1\\)$|^\\+1$"
-  ],
-  "phone_type": [
-   "Mobile",
-   "mobile|cell"
-  ],
-  "phone": "(555) 010-0000",
-  "linkedin": "https://www.linkedin.com/in/janedoe",
-  "github": "https://github.com/janedoe",
-  "website": "https://janedoe.dev",
-  "address_line1": "123 Main St",
-  "address_full": "123 Main St, Springfield, IL 62701",
-  "city": "Springfield",
-  "county": [
-   "Sangamon",
-   "^sangamon"
-  ],
-  "zip": "62701",
-  "state": [
-   "Illinois",
-   "^(illinois|il)\\b"
-  ],
-  "country": [
-   "United States",
-   "^united states\\b(?! minor)|^usa?$"
-  ],
-  "current_location": [
-   "Springfield, IL",
-   "^springfield,? (illinois|il)\\b|^illinois\\b"
-  ],
-  "authorized_to_work": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "needs_sponsorship": [
-   "No",
-   "^no\\b"
-  ],
-  "sms_updates_exact": [
-   "Yes",
-   "^yes\\b|opt.?in|i agree"
-  ],
-  "sms_consent": [
-   "Yes",
-   "^yes\\b|i agree|agree|opt.?in|accept"
-  ],
-  "relocation_details": "Open to relocating anywhere in the US",
-  "willing_to_relocate": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "lives_in_home_area": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "lives_in_other_area": [
-   "No",
-   "^no\\b"
-  ],
-  "onsite_ok": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "over_18": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "background_check_ok": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "relatives_at_company": [
-   "No",
-   "^no\\b"
-  ],
-  "government_official": [
-   "No",
-   "^no\\b"
-  ],
-  "non_compete": [
-   "No",
-   "^no\\b"
-  ],
-  "criminal_record": [
-   "No",
-   "^no\\b"
-  ],
-  "worked_here_before": [
-   "No",
-   "^no\\b"
-  ],
-  "notice_period": [
-   "Less than 1 month",
-   "less than (1|one) month|< ?1 month|2 weeks|two weeks"
-  ],
-  "start_date": [
-   "June 1, 2027",
-   "jun(e)?\\b.*2027|2027-06|06/2027"
-  ],
-  "comp_range_ok": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "salary": [
-   "Open / negotiable",
-   "negotiable|open"
-  ],
-  "how_heard": [
-   "Company website / careers page",
-   "company (web)?site|career(s)? (page|site)|website|careers|job ?board|online job|recruitment website|internet search"
-  ],
-  "degree_completed_or_pursuing": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "degree_completed": [
-   "No",
-   "^no\\b"
-  ],
-  "high_school_diploma": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "school": [
-   "State University",
-   "state university|^other$"
-  ],
-  "enrolled_after_internship": [
-   "No",
-   "^no\\b"
-  ],
-  "currently_enrolled": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "degree_level": [
-   "Bachelor's Degree",
-   "bachelor|b\\.?s\\.?\\b"
-  ],
-  "major": [
-   "Computer Science",
-   "computer science"
-  ],
-  "gpa": "3.50",
-  "graduation_date": [
-   "May 2027",
-   "2027|may"
-  ],
-  "current_employer": "Example Corp",
-  "current_title": "Software Engineer Intern",
-  "gender": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "hispanic_latino": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "race": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "veteran": [
-   "I am not a protected veteran",
-   "^i am not a protected veteran|^no\\b"
-  ],
-  "if_yes_details": "N/A",
-  "immigration_status": "U.S. Citizen",
-  "pending_immigration_case": [
-   "No",
-   "^no\\b"
-  ],
-  "us_person": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "citizenship_country": [
-   "United States",
-   "^united states"
-  ],
-  "travel": [
-   "Yes, up to 100%",
-   "100|any|^yes\\b|75|50"
-  ],
-  "drivers_license": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "needs_transportation": [
-   "No",
-   "^no\\b"
-  ],
-  "needs_housing": [
-   "No",
-   "^no\\b"
-  ],
-  "overtime_ok": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "other_jobs": [
-   "None",
-   "^no\\b|none"
-  ],
-  "hourly_rate": "Negotiable",
-  "test_scores": "N/A",
-  "military_service": [
-   "None",
-   "^no\\b|none|i have no military"
-  ],
-  "referred": [
-   "No",
-   "^no\\b"
-  ],
-  "ai_notetaker_consent": [
-   "Yes",
-   "^yes\\b|i (agree|consent)|consent"
-  ],
-  "age_18_alt": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "non_compete_alt": [
-   "No",
-   "^no\\b"
-  ],
-  "other_commitments": [
-   "No",
-   "^no\\b"
-  ],
-  "worked_at_affiliate": [
-   "No",
-   "^no\\b"
-  ],
-  "applied_before": [
-   "No",
-   "^no\\b"
-  ],
-  "work_permit": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "government_employment": [
-   "No",
-   "^no\\b|do not|have not"
-  ],
-  "license_revoked": [
-   "No",
-   "^no\\b"
-  ],
-  "certifications": "None",
-  "current_degree": [
-   "Bachelor's Degree in Computer Science",
-   "bachelor"
-  ],
-  "available_full_program": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "forty_hours": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "location_preference": [
-   "I have no preference",
-   "no preference|any location|^any\\b|flexible"
-  ],
-  "other_languages": "None",
-  "essential_functions": [
-   "Yes",
-   "^yes\\b"
-  ],
-  "offer_before": [
-   "No",
-   "^no\\b"
-  ],
-  "business_ownership": [
-   "None",
-   "^no\\b|none"
-  ],
-  "transgender": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "sexual_orientation": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "gender_identity": [
-   "Decline to self-identify",
-   "decline|prefer not"
-  ],
-  "disability": [
-   "I don't wish to answer",
-   "don.t wish|decline|prefer not"
-  ],
-  "pronouns": "She/her",
-  "temporary_work_auth": [
-   "<answer>",
-   "^no\\b"
-  ],
-  "citizen_or_lpr": [
-   "<answer>",
-   "^yes\\b"
-  ],
-  "us_citizen": [
-   "<answer>",
-   "^no\\b"
-  ],
-  "deemed_export": [
-   "<answer>",
-   "^no\\b"
-  ],
-  "sanctioned_country": [
-   "<answer>",
-   "^no\\b|neither|none"
-  ],
-  "active_clearance": [
-   "<answer>",
-   "^none\\b|^no\\b|not applicable|^n/?a\\b|do not|don.t"
-  ],
-  "graduation_month": [
-   "<answer>",
-   "^dec(ember)?\\b"
-  ],
-  "edu_start_year": "<year>",
-  "edu_end_month": [
-   "<answer>",
-   "^dec(ember)?\\b"
-  ],
-  "edu_end_year": "<year>",
-  "graduation_year": [
-   "<year>",
-   "^<year>$"
-  ],
-  "address_line2": "",
-  "edu_start_month": [
-   "<month>",
-   "^<month>"
-  ],
-  "highest_completed_degree": [
-   "<degree>",
-   "<option regex>"
-  ],
-  "city_of_residence": [
-   "<value>",
-   "<option regex>"
-  ],
-  "remote_location": [
-   "<value>",
-   "<option regex>"
-  ],
-  "current_offers": [
-   "<value>",
-   "<option regex>"
-  ],
-  "high_school_name": "<value>",
-  "high_school_grad": [
-   "<value>",
-   "<option regex>"
-  ],
-  "contact_employer": [
-   "<value>",
-   "<option regex>"
-  ],
-  "job_level": [
-   "<value>",
-   "<option regex>"
-  ],
-  "outside_work": [
-   "<value>",
-   "<option regex>"
-  ],
-  "terminated": [
-   "<value>",
-   "<option regex>"
-  ],
-  "regulatory_discipline": [
-   "<value>",
-   "<option regex>"
-  ],
-  "employment_gaps": "<value>",
-  "investing_experience": [
-   "<value>",
-   "<option regex>"
-  ],
-  "customer_facing": [
-   "<value>",
-   "<option regex>"
-  ],
-  "career_fair": [
-   "<value>",
-   "<option regex>"
-  ],
-  "whatsapp_optin": [
-   "<value>",
-   "<option regex>"
-  ],
-  "first_gen_professional": [
-   "<value>",
-   "<option regex>"
-  ],
-  "research_area_experience": [
-   "<value>",
-   "<option regex>"
-  ],
-  "production_tools": [
-   "<value>",
-   "<option regex>"
-  ],
-  "proficient_languages": [
-   "<value>",
-   "<option regex>"
-  ],
-  "interview_language": [
-   "<value>",
-   "<option regex>"
-  ],
-  "ideal_work_location": [
-   "<value>",
-   "<option regex>"
-  ],
-  "relocate_combo": [
-   "<value>",
-   "<option regex>"
-  ],
-  "typed_name_agreement": "<value>"
- },
- "workday_answers": {
-  "first_name": "Jane",
-  "last_name": "Doe",
-  "address_line1": "123 Main St",
-  "city": "Springfield",
-  "zip": "62701",
-  "county": [
-   "Sangamon",
-   "^sangamon"
-  ],
-  "state": [
-   "Illinois",
-   "^illinois$"
-  ],
-  "country": [
-   "United States of America",
-   "^united states( of america)?$"
-  ],
-  "phone_type": [
-   "Mobile",
-   "mobile|^cell"
-  ],
-  "phone_country_code": [
-   "United States of America (+1)",
-   "united states of america \\(\\+1\\)|^\\+?1$|united states.*\\+1"
-  ],
-  "phone_digits": "5550100000",
-  "phone_extension": "",
-  "email": "jane.doe@example.com",
-  "how_heard": [
-   "Career Site",
-   "career site|company (web)?site|careers? (page|website)|corporate website|^websites?$|\\bwebsite$|^linkedin$|job ?board|internet|online (job|search)|web ?search"
-  ],
-  "previous_worker": [
-   "No",
-   "^no$"
-  ],
-  "linkedin": "https://www.linkedin.com/in/janedoe",
-  "web_address": "https://www.linkedin.com/in/janedoe",
-  "gender": [
-   "Decline to self-identify",
-   "decline|not wish"
-  ],
-  "race": [
-   "Decline to self-identify",
-   "decline|not wish"
-  ],
-  "hispanic_latino": [
-   "Decline to self-identify",
-   "decline|not wish"
-  ],
-  "veteran": [
-   "I am not a veteran",
-   "^(?!.*identify as a veteran)(?!.*\\bi am a (protected )?veteran)(i am not a (protected )?veteran|i am not a veteran|not a veteran|i have no military service|no military service|no,? i am not)"
-  ]
- },
- "eightfold_answers": {
-  "veteran": [
-   "I am not a protected veteran",
-   "^(?!.*identify as a(n)? (protected )?veteran)(i am not a (protected )?veteran|not a (protected )?veteran|no\\b)"
-  ]
- },
- "work_history": [
-  {
-   "company": "Example Corp",
-   "title": "Software Engineer Intern",
-   "location": "Springfield, IL",
-   "start": [
-    6,
-    2026
-   ],
-   "end": null
-  }
- ],
- "school": {
-  "name": "State University",
-  "short": "State Univ",
-  "rx": "state university",
-  "degree_rx": "bachelor|^b\\.?s\\.?\\b",
-  "field": "Computer Science",
-  "first_year": 2023,
-  "last_year": 2027,
-  "gpa": "3.50"
- },
- "packet": {
+  "_about": "TEMPLATE. Copy to profile.json (git-ignored) and replace every value with your own. Values are answers about YOU; the code only holds label patterns. Delete a key to leave that question for you to answer by hand (NEEDS YOU). Answer lists are [value, option-regex]: the regex picks the matching option in dropdowns/radios.",
+  "identity": {
+    "first": "Jane",
+    "last": "Doe",
+    "full": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "phone": "(555) 010-0000",
+    "linkedin": "linkedin.com/in/janedoe",
+    "github": "github.com/janedoe",
+    "website": "janedoe.dev",
+    "city": "Springfield",
+    "state": "Illinois",
+    "state_abbr": "IL",
+    "location": "Springfield, IL",
+    "home_area_rx": "springfield|illinois|\\bil\\b",
+    "languages_spoken_rx": "english",
+    "workday_self_id_name": "Jane Doe",
+    "preferred_locations_rx": "springfield|illinois|\\bil\\b|remote"
+  },
   "answers": {
-   "Full name": "Jane Doe",
-   "Email": "jane.doe@example.com",
-   "Phone": "(555) 010-0000",
-   "Authorized to work in the US?": "Yes",
-   "Earliest start date": "June 1, 2027",
-   "School": "State University"
-  },
-  "intern_extra": {
-   "Currently enrolled?": "Yes"
-  },
-  "project_routes": [
-   [
-    "\\bai\\b|machine learning",
-    [
-     "Project A",
-     "Project B"
-    ]
-   ],
-   [
-    ".",
-    [
-     "Project A"
-    ]
-   ]
-  ]
- },
- "cover_letter_header": "Springfield, IL · (555) 010-0000 · jane.doe@example.com · linkedin.com/in/janedoe",
- "resume_v5": {
-  "contact": [
-   [
-    "Springfield, IL",
-    null
-   ],
-   [
-    "(555) 010-0000",
-    "tel:+15550100000"
-   ],
-   [
-    "jane.doe@example.com",
-    "mailto:jane.doe@example.com"
-   ]
-  ],
-  "plinks": {
-   "Project A": [
-    [
-     "github.com/janedoe/project-a",
-     "https://github.com/janedoe/project-a"
-    ]
-   ]
-  },
-  "headline": "Software Engineer",
-  "edu": [
-   [
-    "State University",
-    "Springfield, IL",
-    "Expected May 2027",
-    [
-     "B.S. Computer Science | GPA: 3.50/4.00"
-    ]
-   ]
-  ],
-  "exp": [
-   [
-    "Software Engineer Intern",
-    "Example Corp, Springfield, IL",
-    "Jun 2026 – Present",
-    [
-     "Built ... (your real bullet)."
-    ]
-   ]
-  ],
-  "proj": [
-   [
-    "Project A",
-    "Python, React",
-    "2026",
-    [
-     "Built ... (your real bullet)."
-    ]
-   ]
-  ],
-  "awards": [
-   [
-    "Honors: ",
-    "..."
-   ]
-  ],
-  "base": [
-   [
-    "Languages",
-    [
-     "Python",
-     "JavaScript"
-    ]
-   ],
-   [
-    "Frameworks & Web",
-    [
-     "React"
-    ]
-   ]
-  ]
- },
- "resume_v6": {
-  "school": [
-   "State University",
-   "Springfield, IL",
-   "B.S. Computer Science",
-   "GPA: 3.50/4.00",
-   "May 2027"
-  ],
-  "grad_school": null,
-  "grad_school_on": "all",
-  "courses": [
-   "Data Structures",
-   "Algorithms"
-  ],
-  "course_first": {
-   "backend": [
-    "Data Structures",
-    "Algorithms"
-   ]
-  },
-  "cert": "",
-  "honors": "",
-  "exp": [
-   [
-    "Example Corp",
-    "Example Corp",
-    "Springfield, IL",
-    "Software Engineer Intern",
-    "Jun 2026 – Present"
-   ]
-  ],
-  "proj": {
-   "Project A": [
-    "Project A",
-    [
-     [
-      "github.com/janedoe/project-a",
-      "https://github.com/janedoe/project-a"
-     ]
+    "full_name_first_last": "Jane Doe",
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "preferred_name": "Jane",
+    "full_name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "sms_phone": "(555) 010-0000",
+    "phone_country_code": [
+      "United States (+1)",
+      "^united states\\b(?! minor)|^usa?$|^usa? ?\\(\\+1\\)$|^\\+1$"
     ],
-    "Python, React",
-    "2026",
-    [
-     "fullstack",
-     "general"
+    "phone_type": [
+      "Mobile",
+      "mobile|cell"
     ],
-    1.0
-   ]
+    "phone": "(555) 010-0000",
+    "linkedin": "https://www.linkedin.com/in/janedoe",
+    "github": "https://github.com/janedoe",
+    "website": "https://janedoe.dev",
+    "address_line1": "123 Main St",
+    "address_full": "123 Main St, Springfield, IL 62701",
+    "city": "Springfield",
+    "county": [
+      "Sangamon",
+      "^sangamon"
+    ],
+    "zip": "62701",
+    "state": [
+      "Illinois",
+      "^(illinois|il)\\b"
+    ],
+    "country": [
+      "United States",
+      "^united states\\b(?! minor)|^usa?$"
+    ],
+    "current_location": [
+      "Springfield, IL",
+      "^springfield,? (illinois|il)\\b|^illinois\\b"
+    ],
+    "authorized_to_work": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "needs_sponsorship": [
+      "No",
+      "^no\\b"
+    ],
+    "sms_updates_exact": [
+      "Yes",
+      "^yes\\b|opt.?in|i agree"
+    ],
+    "sms_consent": [
+      "Yes",
+      "^yes\\b|i agree|agree|opt.?in|accept"
+    ],
+    "relocation_details": "Open to relocating anywhere in the US",
+    "willing_to_relocate": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "lives_in_home_area": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "lives_in_other_area": [
+      "No",
+      "^no\\b"
+    ],
+    "onsite_ok": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "over_18": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "background_check_ok": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "relatives_at_company": [
+      "No",
+      "^no\\b"
+    ],
+    "government_official": [
+      "No",
+      "^no\\b"
+    ],
+    "non_compete": [
+      "No",
+      "^no\\b"
+    ],
+    "criminal_record": [
+      "No",
+      "^no\\b"
+    ],
+    "worked_here_before": [
+      "No",
+      "^no\\b"
+    ],
+    "notice_period": [
+      "Less than 1 month",
+      "less than (1|one) month|< ?1 month|2 weeks|two weeks"
+    ],
+    "start_date": [
+      "June 1, 2027",
+      "jun(e)?\\b.*2027|2027-06|06/2027"
+    ],
+    "comp_range_ok": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "salary": [
+      "Open / negotiable",
+      "negotiable|open"
+    ],
+    "how_heard": [
+      "Company website / careers page",
+      "company (web)?site|career(s)? (page|site)|website|careers|job ?board|online job|recruitment website|internet search"
+    ],
+    "degree_completed_or_pursuing": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "degree_completed": [
+      "No",
+      "^no\\b"
+    ],
+    "high_school_diploma": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "school": [
+      "State University",
+      "state university|^other$"
+    ],
+    "enrolled_after_internship": [
+      "No",
+      "^no\\b"
+    ],
+    "currently_enrolled": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "degree_level": [
+      "Bachelor's Degree",
+      "bachelor|b\\.?s\\.?\\b"
+    ],
+    "major": [
+      "Computer Science",
+      "computer science"
+    ],
+    "gpa": "3.50",
+    "graduation_date": [
+      "May 2027",
+      "2027|may"
+    ],
+    "current_employer": "Example Corp",
+    "current_title": "Software Engineer Intern",
+    "gender": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "hispanic_latino": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "race": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "veteran": [
+      "I am not a protected veteran",
+      "^i am not a protected veteran|^no\\b"
+    ],
+    "if_yes_details": "N/A",
+    "immigration_status": "U.S. Citizen",
+    "pending_immigration_case": [
+      "No",
+      "^no\\b"
+    ],
+    "us_person": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "citizenship_country": [
+      "United States",
+      "^united states"
+    ],
+    "travel": [
+      "Yes, up to 100%",
+      "100|any|^yes\\b|75|50"
+    ],
+    "drivers_license": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "needs_transportation": [
+      "No",
+      "^no\\b"
+    ],
+    "needs_housing": [
+      "No",
+      "^no\\b"
+    ],
+    "overtime_ok": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "other_jobs": [
+      "None",
+      "^no\\b|none"
+    ],
+    "hourly_rate": "Negotiable",
+    "test_scores": "N/A",
+    "military_service": [
+      "None",
+      "^no\\b|none|i have no military"
+    ],
+    "referred": [
+      "No",
+      "^no\\b"
+    ],
+    "ai_notetaker_consent": [
+      "Yes",
+      "^yes\\b|i (agree|consent)|consent"
+    ],
+    "age_18_alt": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "non_compete_alt": [
+      "No",
+      "^no\\b"
+    ],
+    "other_commitments": [
+      "No",
+      "^no\\b"
+    ],
+    "worked_at_affiliate": [
+      "No",
+      "^no\\b"
+    ],
+    "applied_before": [
+      "No",
+      "^no\\b"
+    ],
+    "work_permit": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "government_employment": [
+      "No",
+      "^no\\b|do not|have not"
+    ],
+    "license_revoked": [
+      "No",
+      "^no\\b"
+    ],
+    "certifications": "None",
+    "current_degree": [
+      "Bachelor's Degree in Computer Science",
+      "bachelor"
+    ],
+    "available_full_program": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "forty_hours": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "location_preference": [
+      "I have no preference",
+      "no preference|any location|^any\\b|flexible"
+    ],
+    "other_languages": "None",
+    "essential_functions": [
+      "Yes",
+      "^yes\\b"
+    ],
+    "offer_before": [
+      "No",
+      "^no\\b"
+    ],
+    "business_ownership": [
+      "None",
+      "^no\\b|none"
+    ],
+    "transgender": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "sexual_orientation": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "gender_identity": [
+      "Decline to self-identify",
+      "decline|prefer not"
+    ],
+    "disability": [
+      "I don't wish to answer",
+      "don.t wish|decline|prefer not"
+    ],
+    "pronouns": "She/her",
+    "temporary_work_auth": [
+      "<answer>",
+      "^no\\b"
+    ],
+    "citizen_or_lpr": [
+      "<answer>",
+      "^yes\\b"
+    ],
+    "us_citizen": [
+      "<answer>",
+      "^no\\b"
+    ],
+    "deemed_export": [
+      "<answer>",
+      "^no\\b"
+    ],
+    "sanctioned_country": [
+      "<answer>",
+      "^no\\b|neither|none"
+    ],
+    "active_clearance": [
+      "<answer>",
+      "^none\\b|^no\\b|not applicable|^n/?a\\b|do not|don.t"
+    ],
+    "graduation_month": [
+      "<answer>",
+      "^dec(ember)?\\b"
+    ],
+    "edu_start_year": "<year>",
+    "edu_end_month": [
+      "<answer>",
+      "^dec(ember)?\\b"
+    ],
+    "edu_end_year": "<year>",
+    "graduation_year": [
+      "<year>",
+      "^<year>$"
+    ],
+    "address_line2": "",
+    "edu_start_month": [
+      "<month>",
+      "^<month>"
+    ],
+    "highest_completed_degree": [
+      "<degree>",
+      "<option regex>"
+    ],
+    "city_of_residence": [
+      "<value>",
+      "<option regex>"
+    ],
+    "remote_location": [
+      "<value>",
+      "<option regex>"
+    ],
+    "current_offers": [
+      "<value>",
+      "<option regex>"
+    ],
+    "high_school_name": "<value>",
+    "high_school_grad": [
+      "<value>",
+      "<option regex>"
+    ],
+    "contact_employer": [
+      "<value>",
+      "<option regex>"
+    ],
+    "job_level": [
+      "<value>",
+      "<option regex>"
+    ],
+    "outside_work": [
+      "<value>",
+      "<option regex>"
+    ],
+    "terminated": [
+      "<value>",
+      "<option regex>"
+    ],
+    "regulatory_discipline": [
+      "<value>",
+      "<option regex>"
+    ],
+    "employment_gaps": "<value>",
+    "investing_experience": [
+      "<value>",
+      "<option regex>"
+    ],
+    "customer_facing": [
+      "<value>",
+      "<option regex>"
+    ],
+    "career_fair": [
+      "<value>",
+      "<option regex>"
+    ],
+    "whatsapp_optin": [
+      "<value>",
+      "<option regex>"
+    ],
+    "first_gen_professional": [
+      "<value>",
+      "<option regex>"
+    ],
+    "research_area_experience": [
+      "<value>",
+      "<option regex>"
+    ],
+    "production_tools": [
+      "<value>",
+      "<option regex>"
+    ],
+    "proficient_languages": [
+      "<value>",
+      "<option regex>"
+    ],
+    "interview_language": [
+      "<value>",
+      "<option regex>"
+    ],
+    "ideal_work_location": [
+      "<value>",
+      "<option regex>"
+    ],
+    "relocate_combo": [
+      "<value>",
+      "<option regex>"
+    ],
+    "typed_name_agreement": "<value>"
   },
-  "projects_only": [
-   "Project A"
-  ],
-  "lead": [],
-  "always_pins_entry": "",
-  "header_city_default": "Springfield, IL",
-  "header_city_rules": []
- },
- "llm": {
-  "bio": "a CS student (State University, B.S. May 2027)",
-  "candidate": "CS at State University, graduating May 2027.",
-  "fact_rule": "",
-  "signature": "Sign \"Jane Doe\" + LinkedIn linkedin.com/in/janedoe.",
-  "signoff_block": "Jane Doe\\nlinkedin.com/in/janedoe",
-  "experience_dates": "internship Jun 2026-present",
-  "availability_newgrad": "I graduate in May 2027 and can start in June 2027.",
-  "availability_intern": "I am available for the full {term} internship.",
-  "grad_line": "is graduating May 2027",
-  "grad_sentence": "I graduate in May 2027."
- },
- "llm_skip_projects": [],
- "resume_rules": {
-  "not_deployed_rows": [],
-  "deny_rx": ""
- },
- "skills": {
-  "base": {
-   "Languages": [
-    "Python",
-    "JavaScript",
-    "SQL"
-   ],
-   "Frameworks & Libraries": [
-    "React",
-    "FastAPI"
-   ],
-   "AI / ML": [],
-   "Databases & Data": [
-    "PostgreSQL"
-   ],
-   "Cloud & DevOps": [
-    "Git",
-    "Docker"
-   ],
-   "Concepts": [
-    "REST APIs"
-   ]
+  "workday_answers": {
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "address_line1": "123 Main St",
+    "city": "Springfield",
+    "zip": "62701",
+    "county": [
+      "Sangamon",
+      "^sangamon"
+    ],
+    "state": [
+      "Illinois",
+      "^illinois$"
+    ],
+    "country": [
+      "United States of America",
+      "^united states( of america)?$"
+    ],
+    "phone_type": [
+      "Mobile",
+      "mobile|^cell"
+    ],
+    "phone_country_code": [
+      "United States of America (+1)",
+      "united states of america \\(\\+1\\)|^\\+?1$|united states.*\\+1"
+    ],
+    "phone_digits": "5550100000",
+    "phone_extension": "",
+    "email": "jane.doe@example.com",
+    "how_heard": [
+      "Career Site",
+      "career site|company (web)?site|careers? (page|website)|corporate website|^websites?$|\\bwebsite$|^linkedin$|job ?board|internet|online (job|search)|web ?search"
+    ],
+    "previous_worker": [
+      "No",
+      "^no$"
+    ],
+    "linkedin": "https://www.linkedin.com/in/janedoe",
+    "web_address": "https://www.linkedin.com/in/janedoe",
+    "gender": [
+      "Decline to self-identify",
+      "decline|not wish"
+    ],
+    "race": [
+      "Decline to self-identify",
+      "decline|not wish"
+    ],
+    "hispanic_latino": [
+      "Decline to self-identify",
+      "decline|not wish"
+    ],
+    "veteran": [
+      "I am not a veteran",
+      "^(?!.*identify as a veteran)(?!.*\\bi am a (protected )?veteran)(i am not a (protected )?veteran|i am not a veteran|not a veteran|i have no military service|no military service|no,? i am not)"
+    ]
   },
-  "generic": [],
-  "role_add": {},
-  "role_drop": {},
-  "evidence_extra": [
-   "HTML",
-   "CSS"
+  "eightfold_answers": {
+    "veteran": [
+      "I am not a protected veteran",
+      "^(?!.*identify as a(n)? (protected )?veteran)(i am not a (protected )?veteran|not a (protected )?veteran|no\\b)"
+    ]
+  },
+  "work_history": [
+    {
+      "company": "Example Corp",
+      "title": "Software Engineer Intern",
+      "location": "Springfield, IL",
+      "start": [
+        6,
+        2026
+      ],
+      "end": null
+    }
   ],
-  "unproven_max": 0
- },
- "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them.",
- "owner_answers": {
-  "_how": "Answers to questions from data/answer_log/needs_answers.md: \"question text\": \"your answer\". Used by answers.py for the same question on any site."
- }
+  "school": {
+    "name": "State University",
+    "short": "State Univ",
+    "rx": "state university",
+    "degree_rx": "bachelor|^b\\.?s\\.?\\b",
+    "field": "Computer Science",
+    "first_year": 2023,
+    "last_year": 2027,
+    "gpa": "3.50"
+  },
+  "packet": {
+    "answers": {
+      "Full name": "Jane Doe",
+      "Email": "jane.doe@example.com",
+      "Phone": "(555) 010-0000",
+      "Authorized to work in the US?": "Yes",
+      "Earliest start date": "June 1, 2027",
+      "School": "State University"
+    },
+    "intern_extra": {
+      "Currently enrolled?": "Yes"
+    },
+    "project_routes": [
+      [
+        "\\bai\\b|machine learning",
+        [
+          "Project A",
+          "Project B"
+        ]
+      ],
+      [
+        ".",
+        [
+          "Project A"
+        ]
+      ]
+    ]
+  },
+  "cover_letter_header": "Springfield, IL · (555) 010-0000 · jane.doe@example.com · linkedin.com/in/janedoe",
+  "resume_v5": {
+    "contact": [
+      [
+        "Springfield, IL",
+        null
+      ],
+      [
+        "(555) 010-0000",
+        "tel:+15550100000"
+      ],
+      [
+        "jane.doe@example.com",
+        "mailto:jane.doe@example.com"
+      ]
+    ],
+    "plinks": {
+      "Project A": [
+        [
+          "github.com/janedoe/project-a",
+          "https://github.com/janedoe/project-a"
+        ]
+      ]
+    },
+    "headline": "Software Engineer",
+    "edu": [
+      [
+        "State University",
+        "Springfield, IL",
+        "Expected May 2027",
+        [
+          "B.S. Computer Science | GPA: 3.50/4.00"
+        ]
+      ]
+    ],
+    "exp": [
+      [
+        "Software Engineer Intern",
+        "Example Corp, Springfield, IL",
+        "Jun 2026 – Present",
+        [
+          "Built ... (your real bullet)."
+        ]
+      ]
+    ],
+    "proj": [
+      [
+        "Project A",
+        "Python, React",
+        "2026",
+        [
+          "Built ... (your real bullet)."
+        ]
+      ]
+    ],
+    "awards": [
+      [
+        "Honors: ",
+        "..."
+      ]
+    ],
+    "base": [
+      [
+        "Languages",
+        [
+          "Python",
+          "JavaScript"
+        ]
+      ],
+      [
+        "Frameworks & Web",
+        [
+          "React"
+        ]
+      ]
+    ]
+  },
+  "resume_v6": {
+    "school": [
+      "State University",
+      "Springfield, IL",
+      "B.S. Computer Science",
+      "GPA: 3.50/4.00",
+      "May 2027"
+    ],
+    "grad_school": null,
+    "grad_school_on": "all",
+    "courses": [
+      "Data Structures",
+      "Algorithms"
+    ],
+    "course_first": {
+      "backend": [
+        "Data Structures",
+        "Algorithms"
+      ]
+    },
+    "cert": "",
+    "honors": "",
+    "exp": [
+      [
+        "Example Corp",
+        "Example Corp",
+        "Springfield, IL",
+        "Software Engineer Intern",
+        "Jun 2026 – Present"
+      ]
+    ],
+    "proj": {
+      "Project A": [
+        "Project A",
+        [
+          [
+            "github.com/janedoe/project-a",
+            "https://github.com/janedoe/project-a"
+          ]
+        ],
+        "Python, React",
+        "2026",
+        [
+          "fullstack",
+          "general"
+        ],
+        1.0
+      ]
+    },
+    "projects_only": [
+      "Project A"
+    ],
+    "lead": [],
+    "always_pins_entry": "",
+    "header_city_default": "Springfield, IL",
+    "header_city_rules": []
+  },
+  "llm": {
+    "bio": "a CS student (State University, B.S. May 2027)",
+    "candidate": "CS at State University, graduating May 2027.",
+    "fact_rule": "",
+    "signature": "Sign \"Jane Doe\" + LinkedIn linkedin.com/in/janedoe.",
+    "signoff_block": "Jane Doe\\nlinkedin.com/in/janedoe",
+    "experience_dates": "internship Jun 2026-present",
+    "availability_newgrad": "I graduate in May 2027 and can start in June 2027.",
+    "availability_intern": "I am available for the full {term} internship.",
+    "grad_line": "is graduating May 2027",
+    "grad_sentence": "I graduate in May 2027."
+  },
+  "llm_skip_projects": [],
+  "resume_rules": {
+    "not_deployed_rows": [],
+    "deny_rx": ""
+  },
+  "skills": {
+    "base": {
+      "Languages": [
+        "Python",
+        "JavaScript",
+        "SQL"
+      ],
+      "Frameworks & Libraries": [
+        "React",
+        "FastAPI"
+      ],
+      "AI / ML": [],
+      "Databases & Data": [
+        "PostgreSQL"
+      ],
+      "Cloud & DevOps": [
+        "Git",
+        "Docker"
+      ],
+      "Concepts": [
+        "REST APIs"
+      ]
+    },
+    "generic": [],
+    "role_add": {},
+    "role_drop": {},
+    "evidence_extra": [
+      "HTML",
+      "CSS"
+    ],
+    "unproven_max": 0
+  },
+  "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them.",
+  "owner_answers": {
+    "_how": "Answers to questions from data/answer_log/needs_answers.md: \"question text\": \"your answer\". Used by answers.py for the same question on any site."
+  },
+  "company_bad_words": [
+    "staffing",
+    "body shop",
+    "contract-to-hire agency"
+  ],
+  "linkedin_follow_companies": false
 }

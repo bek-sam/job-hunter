@@ -84,11 +84,41 @@ def _cache():
     except Exception: return {}
 
 
+_STOP = set('a an the of to in for and or your you do are is have has be this with what how on at as any we our'.split())
+
+
+def _words(t):
+    return {w for w in re.findall(r'[a-z0-9]+', (t or '').lower()) if w not in _STOP and len(w) > 1}
+
+
+def fuzzy_owner_answer(label, company='', line=''):
+    """Reuse his own answer when the same question is worded differently (shankswhite/JobApplyAgent answer-cache idea:
+    Jaccard >= 0.6 or containment >= 0.8). 0 tokens. Skips company-specific / 'why' essays and options it can't match."""
+    if not label or re.search(r'\bwhy\b', label, re.I) or (company and company.lower()[:6] in label.lower()):
+        return None
+    q = _words(label)
+    if len(q) < 2: return None
+    best, best_s = None, 0.0
+    for k, v in (P.get('owner_answers', default={}) or {}).items():
+        if not v or k.startswith('_'): continue
+        w = _words(k)
+        if not w: continue
+        inter = len(q & w); s = max(inter / len(q | w), inter / min(len(q), len(w)) * 0.75)   # containment weighted down a bit
+        if s > best_s: best, best_s = v, s
+    if best_s < 0.6: return None
+    if 'options:' in line and str(best).strip().lower() not in line.lower(): return None
+    return best
+
+
 def ask_cached(job, labels, lines):
     """One LLM call for the questions not answered before for this posting (Oct 13: rows are re-filled every hour, and
     each retry paid for the same answers again). Static context goes FIRST so the prompt cache is read, not re-written."""
     key = re.sub(r'[?#].*$', '', job.get('url') or '') or f"{job.get('company')}|{job.get('title')}"
     cache = _cache(); known = cache.get(key, {})
+    for i, l in enumerate(labels):   # Oct 28: his own answers, same question in other words -> no LLM
+        if l not in known:
+            fz = fuzzy_owner_answer(l, job.get('company') or '', lines[i] if i < len(lines) else '')
+            if fz is not None: known[l] = fz
     todo = [i for i, l in enumerate(labels) if l not in known]
     out = {'answers': [{'id': i, 'answer': known[l]} for i, l in enumerate(labels) if l in known]}
     if todo:
@@ -106,6 +136,12 @@ def ask_cached(job, labels, lines):
                   f"HIS COVER LETTER FOR THIS ROLE (for consistency):\n{(job.get('cover_text') or '')[:1500]}\n\n"
                   f"QUESTIONS:\n" + '\n'.join(lines[i] for i in todo) + "\n\nReturn one entry per question id.")
         new = llm.ask(prompt, system=SYSTEM, schema=SCHEMA, job='form answers').get('answers', [])
+        import factcheck   # Oct 28: no metric/number the facts or the JD don't back (career-ops / ApplyPilot validator idea)
+        for a in new:
+            if isinstance(a.get('answer'), str) and len(a['answer']) > 80:
+                a['answer'], dropped = factcheck.strip_unsupported(a['answer'], job.get('jd_text') or '')
+                if dropped: print(f'factcheck: answer {a.get("id")} lost sentences with {dropped}')
+                if factcheck.leaks(a['answer']): a['answer'] = None
         for a in new:
             if isinstance(a.get('id'), int) and a['id'] in todo and a.get('answer') is not None:
                 known[labels[a['id']]] = a['answer']

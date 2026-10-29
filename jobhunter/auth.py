@@ -43,6 +43,12 @@ def _body(page, n=8000):
 
 
 def _captcha(page):
+    """Open challenge (with CAPTCHA_WAIT > 0 the run first waits for the owner to solve it -- ats.common.captcha)."""
+    from ats.common import wait_solved
+    return _captcha_now(page) and not wait_solved(page, _captcha_now)
+
+
+def _captcha_now(page):
     try:
         ch = page.locator('iframe[src*="recaptcha/api2/bframe"], iframe[title*="challenge" i], iframe[src*="hcaptcha"]')
         if ch.count() and ch.first.is_visible(): return True

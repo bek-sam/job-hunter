@@ -50,6 +50,15 @@ def write(role, jd_text, sc, kind, term=None):
               f"team/product, 2 real projects mapped to their needs, then exactly this availability line: \"{avail}\" "
               f"Sign it \"{P.NAME}\". Max 170 words.")
     out = llm.ask(prompt, system=SYSTEM, schema=SCHEMA, job='cover letter')
+    import factcheck   # career-ops idea: no number may appear that is not in his facts or the JD
+    bad = factcheck.unsupported(out['cover_letter'], jd_text + ' ' + avail)
+    if bad:
+        out = llm.ask(prompt + f"\n\nIMPORTANT: your last draft used numbers not in the facts ({', '.join(bad)}). Use only numbers from the facts.",
+                      system=SYSTEM, schema=SCHEMA, job='cover letter retry')
+        out['cover_letter'], dropped = factcheck.strip_unsupported(out['cover_letter'], jd_text + ' ' + avail)
+        if dropped: print(f'factcheck: removed sentences with {dropped}')
+    if factcheck.leaks(out['cover_letter']):
+        out = llm.ask(prompt, system=SYSTEM, schema=SCHEMA, job='cover letter retry')
     if BANNED.search(out['cover_letter']):  # hard rule: strip any work-auth wording
         out['cover_letter'] = '\n'.join(l for l in out['cover_letter'].splitlines() if not BANNED.search(l))
     return out
@@ -63,9 +72,13 @@ def page_markdown(role, jd, sc, kind, term, enroll, w):
     lines = ['## Role analysis', f"- Team / product: {w['team']}", f"- Required: {', '.join(sc['required']) or 'n/a'}",
              f"- Preferred: {', '.join(sc['preferred']) or 'n/a'}", f"- What they value: {w['what_they_value']}",
              f"- Gaps (no evidence yet): {', '.join(sc['missing']) or 'none'}",
-             f"- Source: {role.get('source')} · posted {posted}",
+             f"- Source: {role.get('source')} · posted {posted}" + (f" · REPOSTED on {sc['repost']} other days (possible ghost job)" if sc.get('repost') else '')
+             + (f" · Career-Ops eval {sc['eval']['score']}/5: {sc['eval']['why']}" if sc.get('eval') else ''),
              f"- Fit {sc['fit']} (role {sc['parts']['role']}, level {sc['parts']['level']}, skills {sc['parts']['skill']}, "
              f"employer {sc['parts']['employer']}, location {sc['parts']['loc']}) · match {sc['match']}% · evidence {sc['evidence']}%"]
+    import score
+    dl = score.deadline(jd.get('text', '') if isinstance(jd, dict) else '')
+    if dl: lines.append(f"- APPLICATION DEADLINE: {dl}")
     if kind == 'intern':
         lines.append(f"- Internship term: {term}" + (' · ELIGIBILITY? enrollment rule' if enroll else ''))
     lines += ['## Application packet'] + [f'- {k}: {v}' for k, v in ans.items()] + ['### Cover letter'] + w['cover_letter'].splitlines()

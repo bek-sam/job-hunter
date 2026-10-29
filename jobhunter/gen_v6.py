@@ -19,7 +19,7 @@ from gen_v5 import NAME, CONTACT, CANON, FAMILY, THEMES, canon, _run, _link, _pa
 import applicant as P, config
 
 OUT = os.environ.get('RESUME_OUT', str(config.RESUMES))
-VERSION = 'v6.2'   # written to the Notion row's Notes, so replies can be compared per resume version
+VERSION = 'v6.3'   # written to the Notion row's Notes, so replies can be compared per resume version
 FACTS = config.DATA / 'resume_facts.json'
 
 # ---------- fixed facts: profile.json "resume_v6" (git-ignored) ----------
@@ -164,14 +164,23 @@ def _terms(spec):
 LISTY = re.compile(r'\bincluding\b(?:[^,]*,){3,}')
 
 
+BULLET_W = 128   # about the characters of one bullet line at 10 pt
+
+
 def _score(b, key, terms, maxlen):
     if len(b['text']) > maxlen: return -99
     order = TAG_ORDER.get(key, TAG_ORDER['general'])
     tag = max((len(order) - order.index(t) for t in b['tags'] if t in order), default=0)
     low = b['text'].lower()
     hits = sum(1 for t in terms if re.search(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])', low))
-    # recruiter guide: quantified impact wins; short task-only bullets ("Built forms with X") lose
-    return (3 * tag + 3 * hits + (3 if re.search(r'\d', b['text']) else 0) - (3 if len(b['text']) < 90 else 0)
+    # recruiter guide: quantified impact wins; short task-only bullets ("Built forms with X") lose.
+    # Oct 28 (Resume-Matcher writing rubric + rejection review "reads inflated"): one or two numbers is a result,
+    # 3+ numbers, estimates (~, projected) and bullets over ~35 words read as padded
+    nums = len(re.findall(r'\d[\d,.]*', b['text']))
+    calm = (3 if 1 <= nums <= 2 else 0) - (3 if nums >= 3 else 0) - (2 if re.search(r'~|projected', b['text']) else 0) \
+        - (3 if len(b['text'].split()) > 35 else 0) \
+        - (8 if len(b['text']) > BULLET_W and len(b['text']) % BULLET_W < 18 else 0)   # last line would hold 1-2 words
+    return (3 * tag + 3 * hits + calm - (3 if len(b['text']) < 90 else 0)
             + (4 if b.get('confirmed') and tag else 0) + (5 if b.get('boost') and tag else 0)  # boost: pinned bullet marked to outrank others
             - (4 if LISTY.search(b['text']) else 0))  # "Built 23 pages including A, B, C, D..." lists screens, not results  # confirmed facts (with results) beat repo-only bullets
 
@@ -236,6 +245,7 @@ RENAME = {  # recruiter guide: name the tool, not the category
 }
 # Unproven JD skills allowed per resume (-1 = all, 0 = only skills you have evidence for). Proven ones are always listed first.
 UNPROVEN_MAX = int(os.environ.get('SKILLS_UNPROVEN_MAX', SK.get('unproven_max', 0)))
+SKILLS_MAX = int(os.environ.get('SKILLS_MAX', SK.get('max', 15)))   # whole Skills section, Certifications excluded
 EXTRA_CANON = {  # JD terms gen_v5.CANON doesn't know; without these they were silently dropped
     'xcode': 'Xcode', 'uikit': 'UIKit', 'core data': 'Core Data', 'combine': 'Combine', 'swiftdata': 'SwiftData',
     'rhel': 'RHEL', 'red hat enterprise linux': 'RHEL', 'api testing': 'API Testing', 'jest': 'Jest', 'cypress': 'Cypress',
@@ -304,9 +314,24 @@ def build_skills(spec, key, tight=0):
         lines[c] = [b for b in lines[c] if not any(_covers(p, b.lower()) or _covers(b.lower(), p) for p in low)]
     order = list(CATS)
     if key in ('ai', 'data'): order.remove('AI / ML'); order.insert(1, 'AI / ML')
+    if not any(p in GENERIC or p.lower() in ('system design', 'distributed systems') for p in pri['Concepts']):
+        lines['Concepts'] = [i for i in lines['Concepts'] if i not in GENERIC]
+    # Oct 28: ~40 listed tools with little proof read as keyword stuffing -> at most SKILLS_MAX in all:
+    # proven JD skills first (category order), then base skills fill what is left
+    budget, take = SKILLS_MAX, {c: [] for c in CATS}
+    for src in (pri, lines):
+        for c in order:
+            for i in src[c]:
+                if budget > 0 and i not in take[c]: take[c].append(i); budget -= 1
+    for c in order:   # a one-item line ("Concepts: GraphQL") reads as an orphan: add a base item, take one off the biggest line
+        more = [i for i in lines[c] if i not in take[c]]
+        donor = max(order, key=lambda d: len([i for i in take[d] if i not in pri[d]]) if d != c else -1)
+        spare = [i for i in take[donor] if i not in pri[donor]]
+        if len(take[c]) == 1 and more and spare and len(take[donor]) > 3:
+            take[donor].remove(spare[-1]); take[c].append(more[0])
     out = []
     for c in order:
-        items = pri[c] + lines[c]
+        items = [i for i in pri[c] if i in take[c]] + [i for i in lines[c] if i in take[c] and i not in pri[c]]
         room = LINE - len(c) - 2 - tight
         # JD terms may wrap to a 2nd line; base extras are dropped so a line never spills by a word or two
         cap = room if c == 'Concepts' or len(', '.join(pri[c])) <= room else 2 * room   # Concepts: one line, always

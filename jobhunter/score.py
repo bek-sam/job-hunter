@@ -13,9 +13,10 @@ for _, stack, _, _ in PROJ:
 
 BLOCK = [  # never written to Notion (Oct 4 2026 rule) -> just counted
     (r'\b(u\.?s\.?|united states) citizen(ship)?\b(?! or)|must be a u\.?s\.? citizen|citizenship is required', 'citizenship'),
+    (r'(?<!not )(?<!no )\b(u\.?s\.? citizens|united states citizens|american citizens) only\b|open (only )?to (u\.?s\.?|united states) citizens(?! and| or|,)|only (u\.?s\.?|united states) citizens', 'citizenship'),  # Oct 28 (autofill-extension rules)
     (r'security clearance|secret clearance|ts/sci|top secret|active clearance|clearance (is )?required|obtain (and maintain )?a (security )?clearance', 'clearance'),
     (r'\bitar\b|(?<![a-z])u\.?s\.? persons?\b', 'ITAR/US person'),   # Oct 14: 'Indigenous persons' matched 'us person'
-    (r'\b([2-9]|1[0-9])\+? (or more )?years?(?: of)? (professional |industry |relevant |hands-on )?(software |engineering |work )?experience', 'seniority'),
+    (r'\b([2-9]|1[0-9])\+?(\s*-\s*\d+)? (or more )?(years?|yrs)\.?(?: of)? (professional |industry |relevant |hands-on |practical )?(software |engineering |development |work )?experience', 'seniority'),
     (r'\b(ph\.?d|doctoral|master\'?s degree) (is )?(required|only)', 'PhD/MS required'),
 ]
 STAFFING = re.compile(r'taskverse|cybercoders|jobot|dice\b|robert half|insight global|teksystems|staffing|talent ?pluto|recruit(ing|ers) (llc|inc)|hirequest|actalent|revature|synergisticit|executiveplacements|placements?\b|afterquery|\bexperts$|beaconfire|smartiplace|ampcus|apex systems|kforce|randstad|adecco|aerotek|hays\b|motion recruitment|crossover|outlier|mercor|data ?annotation|turing\b|braintrust|talent ?hop|remote ?hunter|jobgether|haystack|portfolio ?future|the ?ladders|kansasworks|jooble|lensa|jobs ?via|hiring ?cafe|v-?soft|staff ?xpert|selby jennings|harnham|oscar technology|jefferson frank|nigel frank|torentify|peterson technology|rangam|inceed|biospace\b', re.I)  # Oct 13: aggregator reposts close within hours / AI-apply walls
@@ -23,6 +24,14 @@ STAFFING = re.compile(r'taskverse|cybercoders|jobot|dice\b|robert half|insight g
 ROLE35 = re.compile(r'full[ -]?stack|back[ -]?end|backend|\bai\b|machine learning|\bml\b|genai|generative|\bllm|ios|mobile|android|front[ -]?end|frontend|\bweb\b|software (engineer|developer|development engineer)|\bswe\b|forward deployed|product engineer|application (engineer|developer)', re.I)
 ROLE25 = re.compile(r'data engineer|cloud|platform|devops|\bsre\b|site reliability|infrastructure', re.I)
 ROLE10 = re.compile(r'\bqa\b|quality|test|sdet|embedded|firmware|it |programmer analyst|systems analyst', re.I)
+# Oct 28 review: 175 of 1,112 submissions were outside SWE / full-stack / mobile / AI (Field Application Engineer, Data
+# Center, Security/DLP, Robotics, quant C++, SDET, embedded...) and got auto-rejected in 1-3 days -> config.TITLE_STRICT
+CORE_TITLE = re.compile(r'software|developer|\bswe\b|\bsde\b|full[ -]?stack|back[ -]?end|front[ -]?end|\bweb\b|\bios\b|mobile|'
+                        r'android|\bai\b|machine learning|\bml\b|genai|generative|\bllm|forward deployed|product engineer', re.I)
+OFF_TITLE = re.compile(r'field|applications? engineer|security|\bdlp\b|robotic|research|quant|c\+\+|embedded|firmware|hardware|'
+                       r'in test\b|\bsdet\b|\bqa\b|test (engineer|automation)|data ?cent(er|re)|game|graphics|\b3d\b|solutions? engineer|'
+                       r'support|mainframe|\bsap\b|servicenow|salesforce|blockchain|crypto|perception|autonomy|vision|audio|'
+                       r'\bcontract(or)?\b|\bcnc\b|data engineer|devops|site reliability|\bsre\b|infrastructure', re.I)
 ENTRY = re.compile(r'new grad|new college|entry|early career|university|graduate|campus|\b2027\b|\bassociate\b|engineer i\b|\bi\b$|\b(engineer|developer) 1\b|junior|jr\.?\b|intern|co-?op', re.I)
 NON_SWE = re.compile(r'analyst|analytics|pricing|business|sales|marketing|finance|accounting|operations|recruit|\bhr\b|designer|product manager|consultant', re.I)
 TXREMOTE = re.compile(P.get('identity', 'preferred_locations_rx') or r'remote', re.I)   # your preferred locations
@@ -80,7 +89,7 @@ def blocked(jd_text, title=''):
             if 'or permanent resident' in ctx or 'green card' in ctx or 'or lawful' in ctx: continue
         return why
     if re.search(r'\bsenior\b|\bsr\.?\b|\bstaff\b|\bprincipal\b|\blead\b|\bmanager\b|\bdirector\b|\bii\b|\biii\b|'
-                 r'\bvp\b|vice president|\bhead of\b|\bchief\b|\barchitect\b', title, re.I):
+                 r'\b[se]?vp\b|vice president|\bhead of\b|\bchief\b|\barchitect\b', title, re.I):
         return 'seniority'
     # Oct 23: founding roles (SentiLink, Avent) rejected every time -- they hire experienced engineers
     if re.search(r'\bfounding\b', title, re.I): return 'seniority'
@@ -94,6 +103,9 @@ def blocked(jd_text, title=''):
                  r'product design engineer|process engineer|field service|technician', title, re.I) \
             and not re.search(r'software|machine learning|\bml\b|\bai\b|data|firmware|embedded|developer', title, re.I):
         return 'not a software role'
+    import config
+    if config.TITLE_STRICT and title and (not CORE_TITLE.search(title) or OFF_TITLE.search(title)):
+        return 'off-target role'
     # language requirements the applicant can't meet (profile identity.languages_spoken_rx): "Jr. Front-End Developer (Korean Bilingual)"
     m = re.search(r'bilingual|fluent in|native (speaker|level)|(korean|japanese|mandarin|chinese|spanish|french|german|portuguese|vietnamese|'
                   r'arabic|hindi|italian|dutch|polish)[- ](speaking|speaker|bilingual)', title, re.I)
@@ -145,3 +157,23 @@ def term_too_early(term):
     """Internships must start Jan 2027 or later (Intern Rules). 'Winter 2026' etc. -> too early."""
     m = re.match(r'\w+ 20(\d\d)', term or '')
     return bool(m and int(m.group(1)) <= 26)
+
+
+DEADLINE = re.compile(r'(?:application (?:deadline|closes?|due)|apply by|deadline(?: to apply)?|closing date|applications? (?:will )?(?:close|be accepted until|accepted through))'
+                      r'[:\s]*(?:is|on|by)?\s*((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}(?:st|nd|rd|th)?,? ?(?:20\d\d)?|\d{1,2}/\d{1,2}/(?:20)?\d\d|20\d\d-\d\d-\d\d)', re.I)
+
+
+def deadline(jd_text):
+    """Application deadline written in the JD, as text ('Nov 15, 2026'), or None (career-ops closing-soon idea)."""
+    m = DEADLINE.search(jd_text or '')
+    return m.group(1).strip() if m else None
+
+
+def bad_company(company, jd_text=''):
+    """Owner blocklist: profile.json "company_bad_words" (staffing / body-shop words) matched in the company name or the
+    'about us' part of the JD (GodsScion about-company blacklist idea). Returns the matched word or None."""
+    words = P.get('company_bad_words', default=[]) or []
+    t = (company or '') + '\n' + (jd_text or '')[-3000:]
+    for w in words:
+        if re.search(r'\b' + re.escape(w) + r'\b', t, re.I): return w
+    return None

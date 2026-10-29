@@ -10,7 +10,7 @@ import applicant as P
 import argparse, collections, concurrent.futures as cf, datetime as dt, json, os, re, sqlite3, subprocess, sys, time, traceback
 from pathlib import Path
 from zoneinfo import ZoneInfo
-import config, jd as JD, score, notify
+import config, hunt, jd as JD, score, notify
 
 CT = ZoneInfo('America/Chicago')
 PY = sys.executable
@@ -34,6 +34,8 @@ def run_hunters(hours):
     jobs = {'hunt': ['hunt.py', '--out', str(out / 'new_roles.json')],
             'intern': ['intern_hunt.py', '--out', str(out / 'new_interns.json')],
             'bigtech': ['bigtech.py', '--out', str(out / 'new_bigtech.json')]}
+    if os.environ.get('JOBSPY', '1') == '1':   # Oct 28: Indeed / ZipRecruiter / Google Jobs via python-jobspy
+        jobs['jobspy'] = ['jobspy_hunt.py', '--out', str(out / 'new_jobspy.json')]
     def go(name):
         args = jobs[name]
         try:
@@ -43,8 +45,9 @@ def run_hunters(hours):
         except Exception as e:
             return name, [], f'failed: {e}'
     first = go('hunt')   # Oct 14: hunt.py first; intern_hunt.py then reuses its board fetches (no double Workday load)
-    with cf.ThreadPoolExecutor(2) as ex:
-        return [first] + list(ex.map(go, ['intern', 'bigtech']))
+    rest = [n for n in jobs if n != 'hunt']
+    with cf.ThreadPoolExecutor(len(rest)) as ex:
+        return [first] + list(ex.map(go, rest))
 
 
 def merged(results):
@@ -95,13 +98,35 @@ def seen_pair(key, pairs):
     return key in pairs or any(t == key[1] and same_co(c, key[0]) for c, t in pairs)
 
 
+SCAN_HIST = config.DATA / 'scan_history.jsonl'
+
+
+def repost_count(key, url, t0, days=90):
+    """How many OTHER days in the last `days` the same company + title was seen with a different URL (ghost/repost
+    signal, idea from career-ops detect-reposts.mjs). Also records this sighting. 0 tokens."""
+    import json as _j
+    day = t0.strftime('%Y-%m-%d'); cutoff = (t0 - dt.timedelta(days=days)).strftime('%Y-%m-%d'); seen_days = set()
+    try:
+        for line in SCAN_HIST.open():
+            h = _j.loads(line)
+            if h['d'] >= cutoff and h['d'] != day and h['t'] == key[1] and same_co(h['c'], key[0]) and h['u'] != norm(url):
+                seen_days.add(h['d'])
+    except OSError:
+        pass
+    with SCAN_HIST.open('a') as f:
+        f.write(_j.dumps({'d': day, 'c': key[0], 't': key[1], 'u': norm(url)}) + '\n')
+    return len(seen_days)
+
+
 def notion_index():
     import notion
     rows = notion.recent_rows(35)
     links = {norm(r.get('Link')) for r in rows if r.get('Link')}
     pairs = {(norm(r.get('Company'))[:12], norm(r.get('Position'))) for r in rows}
-    week = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
-    per_co = collections.Counter(norm(r.get('Company'))[:12] for r in rows if (r.get('created') or '') >= week)
+    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=config.PER_COMPANY_DAYS)).isoformat()
+    # every row still in play counts (To apply / Needs you / Applied / Rejected / OA / Interview); Closed never went out
+    per_co = collections.Counter(norm(r.get('Company'))[:12] for r in rows
+                                 if (r.get('created') or '') >= since and r.get('Status') != 'Closed')
     return links, pairs, per_co
 
 
@@ -198,13 +223,15 @@ def main():
                 stats['dupes'] += 1; continue
             pairs = set(pairs) | {key}   # same company + title twice in one run (multi-location reposts) -> build once
             n_co = sum(n for c, n in per_co.items() if same_co(c, key[0]))
-            if n_co >= config.PER_COMPANY_WEEK:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
-                stats['dupes'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: already {n_co} roles this week"); continue
+            if n_co >= config.PER_COMPANY_MAX:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
+                stats['dupes'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: already {n_co} role(s) in {config.PER_COMPANY_DAYS} days"); continue
+            if hunt.foreign(r.get('location')) or hunt.non_us_title(r['title']):   # every source, not only hunt.py's own
+                stats['blocked'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: non-US ({r.get('location')})"); continue
             if score.STAFFING.search(r['company']):
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']}: staffing repost"); continue
             j = j or JD.fetch(r['url'])
             text = j.get('text', '')
-            why = score.blocked(text, r['title'])
+            why = score.blocked(text, r['title']) or (lambda w: w and f'company blocklist: {w}')(score.bad_company(r['company'], text))
             if why:
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: {why}")
                 con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:' + why, None, t0.isoformat()))
@@ -214,10 +241,24 @@ def main():
                 con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'blocked:term', None, t0.isoformat()))
                 continue
             sc = score.prescore(r, text)
+            reps = repost_count(key, r['url'], t0)   # career-ops detect-reposts: same co+title, other URLs, other days
+            if reps >= 2:
+                sc['repost'] = reps; sc['fit'] -= 5 * min(reps - 1, 3)
             if sc['fit'] < config.FIT_GATE:
                 stats['low_fit'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: fit {sc['fit']}")
                 con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'low', sc['fit'], t0.isoformat()))
                 continue
+            if config.CAREER_EVAL and not a.dry_run:   # Career-Ops evaluation (vendor/career-ops), fails open
+                try:
+                    import career_eval
+                    ev = career_eval.evaluate(r, text, job='fast_hunter_eval')
+                    sc['eval'] = ev
+                    if ev['score'] < config.EVAL_GATE:
+                        stats['low_fit'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: eval {ev['score']}/5 ({ev['why'][:80]})")
+                        con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'low_eval', sc['fit'], t0.isoformat()))
+                        continue
+                except Exception:
+                    traceback.print_exc()
             built.append(build(r, j, sc, dry=a.dry_run))
             stats['built'] += 1; per_co[key[0]] += 1
             con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'built', sc['fit'], t0.isoformat()))
@@ -362,6 +403,9 @@ def today_counts(dry):
 
 
 def finish(built, stats, per_script, why, today, a):
+    if why and not a.dry_run:   # Oct 28: keep every drop reason for pattern analysis (career-ops discard-analytics idea)
+        with open(config.DATA / 'discards.jsonl', 'a') as fh:
+            for w in why: fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'why': w}) + '\n')
     tc = f"today: NG {today['ng']}, Intern {today['intern']}" if today else 'today: count n/a'
     lines = [f"Fast Hunter local run {dt.datetime.now(CT):%Y-%m-%d %H:%M} CT (window {a.minutes} min){' DRY-RUN' if a.dry_run else ''}"]
     if built:

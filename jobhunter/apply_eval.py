@@ -47,14 +47,14 @@ def candidates(ats, st):
     rows = notion.query({'or': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                 {'property': 'Status', 'select': {'equals': 'Needs you'}}]})
     applied = notion.query({'property': 'Status', 'select': {'equals': 'Applied'}})
-    week = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=config.PER_COMPANY_DAYS)).isoformat()
     co = lambda r: re.sub(r'[^a-z0-9]', '', (r.get('Company') or '').lower())[:12]
     per_co = {}
     for r in applied:
-        if (r.get('Date Applied') or '') >= week[:10]: per_co[co(r)] = per_co.get(co(r), 0) + 1
+        if (r.get('Date Applied') or '') >= since[:10]: per_co[co(r)] = per_co.get(co(r), 0) + 1
     out = [r for r in rows if re.search(ATS_RX[ats], r.get('Link') or '', re.I) and r['id'] not in st['tried']
            and not score.STAFFING.search(r.get('Company') or '') and not score.blocked('', r.get('Position') or '')
-           and 'LINK LOST' not in (r.get('Notes') or '') and per_co.get(co(r), 0) < config.PER_COMPANY_WEEK]
+           and 'LINK LOST' not in (r.get('Notes') or '') and per_co.get(co(r), 0) < config.PER_COMPANY_MAX]
     out.sort(key=lambda r: (fit(r), r.get('created') or ''), reverse=True)
     return out
 

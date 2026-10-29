@@ -85,7 +85,34 @@ def compute(rows, today=None, max_outreach=10):
         'outreach_stages': dict(outreach),
         'followups_due': [short(r, 80) for r in due[:20]],
         'outreach_candidates': [short(r, 80) for r in cand[:max_outreach]],
+        'response_patterns': patterns(rows),
     }
+
+
+def patterns(rows, min_n=5):
+    """What gets replies (career-ops analyze-patterns / AkbarDevop job-patterns idea): of applied rows, the share that
+    reached OA/Interview/Offer, grouped by kind, apply site and entry-level title. 0 tokens."""
+    import re as _re
+    applied = [r for r in rows if r.get('Status') in ('Applied', 'OA', 'Interview', 'Offer', 'Rejected', 'Ghosted')]
+    hit = lambda r: r.get('Status') in ('OA', 'Interview', 'Offer')
+    groups = {'kind': kind, 'apply_via': lambda r: r.get('Apply Via') or '?',
+              'entry_title': lambda r: 'entry/new-grad title' if _re.search(r'new grad|entry|junior|early career|university|graduate|intern|\bi\b', r.get('Position') or '', _re.I) else 'other title'}
+    out = {}
+    for g, fn in groups.items():
+        c = collections.defaultdict(lambda: [0, 0])
+        for r in applied:
+            k = fn(r); c[k][0] += 1; c[k][1] += hit(r)
+        out[g] = {k: f'{h}/{n} = {100 * h / n:.1f}%' for k, (n, h) in sorted(c.items(), key=lambda x: -x[1][0]) if n >= min_n}
+    out['total'] = f'{sum(map(hit, applied))}/{len(applied)}'
+    return out
+
+
+def ghost_candidates(rows, days=30, today=None):
+    """Applied rows with no reply for `days` (ApplyPilot ghosting idea): status change only, never deleted."""
+    today = today or dt.datetime.now(CT).date()
+    return [r for r in rows if r.get('Status') == 'Applied' and _d(r.get('Date Applied'))
+            and (today - _d(r.get('Date Applied'))).days >= days
+            and not (_d(r.get('Last Contact')) and (today - _d(r.get('Last Contact'))).days < days)]
 
 
 def get(fixture=None, max_outreach=10):

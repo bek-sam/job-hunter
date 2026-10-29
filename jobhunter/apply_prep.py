@@ -159,6 +159,22 @@ def company_submitted(company):
         return False
 
 
+def company_recent(company, role=''):
+    """Date we submitted another role to this company within PER_COMPANY_DAYS (data/submissions.jsonl), else None."""
+    c, me = _co(company), re.sub(r'\W+', ' ', (role or '').lower()).strip()
+    since = (dt.datetime.now(CT) - dt.timedelta(days=config.PER_COMPANY_DAYS)).isoformat()
+    hits = []
+    try:
+        for l in (config.DATA / 'submissions.jsonl').read_text().splitlines():
+            d = json.loads(l) if l.strip() else {}
+            if c and _co(d.get('company')) == c and (d.get('at') or '') >= since \
+                    and re.sub(r'\W+', ' ', (d.get('role') or '').lower()).strip() != me:
+                hits.append(d['at'][:10])
+    except Exception:
+        pass
+    return max(hits) if len(hits) >= config.PER_COMPANY_MAX else None
+
+
 def emailed_confirmation(r):
     """Rows older than 48 h may have been submitted by hand (cloud Apply Prep left them 'FILLED – click Submit').
     One cheap read-only Gmail lookup: is there already an application confirmation for this company + role?"""
@@ -343,6 +359,12 @@ NOT_APP = re.compile(r'/cdn-cgi/challenge-platform/|nr-data\.net|sentry\.io|data
 GUARD_HOSTS = re.compile(r'greenhouse\.io|ashbyhq\.com|lever\.co|smartrecruiters\.com|workable\.com|rippling\.com|applytojob\.com|breezy\.hr|bamboohr\.com', re.I)
 
 
+def _site(url):
+    """Registrable-ish site of a URL (last two host labels): careers.vituity.com -> vituity.com."""
+    h = (urlsplit(url).hostname or '').split('.')
+    return '.'.join(h[-2:])
+
+
 def dry_guard(page, blocked, armed=None):
     """Abort any submit-like POST/PUT at the network layer. --dry: always (Pogo/Ashby Oct 12: a dry run DID submit).
     Live (armed = {'on': False}, single-page ATSs only): blocked until auth.submit's own click arms it -- Oct 12 the
@@ -350,6 +372,15 @@ def dry_guard(page, blocked, armed=None):
     Uploads/autosaves pass; only requests whose URL or JSON body says submit."""
     def h(route, req):
         try:
+            first_party = _site(req.url) == _site(page.url) or bool(GUARD_HOSTS.search(req.url))
+            if armed is None and first_party and req.method in ('POST', 'PUT', 'PATCH') and not re.search(
+                    r'search|widgets?|/get|lookup|/list|query|config|settings?|/session|/token|/csrf', urlsplit(req.url).path, re.I) and not re.search(
+                    r'upload|presign|/files?\b|attachment|resume.?pars|parse|s3\.|amazonaws|/(event|events|track|tracking|log|logs|'
+                    r'analytics|telemetry|collect|beacon|metrics?)(/|\?|$)|sentry|datadog|segment|google|recaptcha|hcaptcha', req.url, re.I):
+                # --dry (Oct 28, Garage/Dover: a pilot test DID submit -- its POST didn't look like a submit): block EVERY
+                # write except uploads / parsing / analytics, whatever its name
+                blocked.append(f"{req.method} {req.url[:150]} (dry: all writes blocked)")
+                return route.abort()
             if req.method in ('POST', 'PUT') and not (armed and armed.get('on')):
                 ct = (req.headers.get('content-type') or '').lower()
                 body = (req.post_data or '')[:3000] if ('json' in ct or 'x-www-form' in ct) else ''
@@ -357,6 +388,8 @@ def dry_guard(page, blocked, armed=None):
                 # judge the path, never the host: "apply.workable.com", "x.applytojob.com" are hosts (Oct 22)
                 path = urlsplit(req.url).path
                 what = (op.group(1) or op.group(2)) if op else path + ' ' + body   # GraphQL: judge by operation name only
+                ddo = re.search(r'"ddoKey"\s*:\s*"(\w+)"', body)   # Phenom (Chewy Oct 28): every call posts to /applySubmit,
+                if ddo: what = ddo.group(1); op = ddo                  # the ddoKey says what it is (applyGetReferences = a read)
                 if re.search(r'/(event|events|track|tracking|log|logs|analytics|telemetry|collect|beacon|metrics?)(/|\?|$)', req.url, re.I) \
                         or NOT_APP.search(req.url):
                     hit = False                 # analytics pings ("jobright.ai/swan/event/submit") are not applications
@@ -372,8 +405,8 @@ def dry_guard(page, blocked, armed=None):
         except Exception:
             try: route.continue_()
             except Exception: pass
-    page.route(lambda u: bool(re.search(r'submit|graphql|/api/|/applications?\b|apply|/jobs/\d+/?(\?|$)', u, re.I))
-               and (armed is None or bool(GUARD_HOSTS.search(u)))
+    page.route(lambda u: (armed is None or bool(re.search(r'submit|graphql|/api/|/applications?\b|apply|/jobs/\d+/?(\?|$)', u, re.I))
+                          and bool(GUARD_HOSTS.search(u)))   # --dry: every request is inspected (Oct 28)
                and not re.search(r'upload|recaptcha|\.(js|css|png|svg|jpe?g|woff2?)(\?|$)', u, re.I), h)
     page.add_init_script("""(()=>{window.__jhClicks=[];addEventListener('click',e=>{const t=e.target.closest('button,a,[role=button]')||e.target;
       window.__jhClicks.push((t.tagName||'')+' '+((t.innerText||'').trim().slice(0,40))+' jh='+t.getAttribute('data-jh')+' trusted='+e.isTrusted)},true);
@@ -382,6 +415,8 @@ def dry_guard(page, blocked, armed=None):
 
 KEEP_TABS = os.environ.get('KEEP_TABS', '1') == '1'   # Oct 13 (owner): leave a stopped form open for him to finish
 MAX_KEPT = int(os.environ.get('MAX_KEPT_TABS', '20'))
+PILOT_LIMIT = int(os.environ.get('PILOT_LIMIT', '15'))   # Claude pilot runs per apply_prep run (Oct 28)
+PILOT_USED = 0
 PROTECT = []   # pages that must survive cleanup: tabs kept for him (this run + earlier runs)
 
 
@@ -404,6 +439,8 @@ def keep_tab(ctx, before, r, res):
     new = [p for p in ctx.pages if p not in before and p.url not in ('about:blank', '')]
     if not new: return False
     PROTECT.extend(new)
+    from ats.common import needs_you_banner   # Oct 28: show what's missing right on the page
+    needs_you_banner(new[-1], res.get('unknown') or [res.get('reason') or ''])
     with open(config.DATA / 'kept_tabs.jsonl', 'a') as fh:
         fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'id': r.get('id'), 'company': r.get('Company'),
                              'role': r.get('Position'), 'url': new[-1].url, 'why': (res.get('reason') or '')[:300]}) + '\n')
@@ -467,6 +504,17 @@ def run_one(ctx, r, files, dry):
     if r.get('id') and hunt.other_school_program(pos):   # program for another university's students only
         res = result('CANCELLED', f'CLOSED – program for another university\'s students ({pos[:80]})'); res['ats'] = '?'
         return res
+    if r.get('id'):   # Oct 28: rows queued before the stricter rules still go through them before anything is filled
+        import score
+        why = score.blocked('', pos) or ('non-US role' if hunt.foreign(r.get('Location') or '') else None)
+        if why:
+            res = result('CANCELLED', f'CLOSED – {why} ({pos[:80]}, {r.get("Location") or "?"})'); res['ats'] = '?'
+            return res
+        prev = company_recent(r.get('Company'), pos)
+        if prev:
+            res = result('CANCELLED', f'CLOSED – already applied to {r.get("Company")} on {prev} (one application per company per '
+                                      f'{config.PER_COMPANY_DAYS} days)'); res['ats'] = '?'
+            return res
     seen = company_limited(r.get('Company')) if r.get('id') else None
     if seen:
         res = result('NEEDS YOU', f'posting closed for him — site limit: {r.get("Company")} allows one application per 90 days '
@@ -512,7 +560,7 @@ def run_one(ctx, r, files, dry):
     loc_txt = posting_location(page)
     if r.get('id') and loc_txt:
         import hunt
-        if hunt.NON_US.search(loc_txt) and not hunt.US.search(loc_txt):
+        if hunt.foreign(loc_txt):
             res = result('CANCELLED', f'CLOSED – non-US role (posting location: {loc_txt[:80]})', page=page)
             res['ats'] = adapter.__name__.split('.')[-1]
             return res
@@ -529,7 +577,8 @@ def run_one(ctx, r, files, dry):
         print('DRY clicks:', clicks)
     if blocked:
         print('GUARD blocked submit request(s) during fill:', blocked)
-        if dry:   # live: the blocked request never left -> the normal armed submit below still applies
+        # writes stopped only by the broad --dry rule are not submit attempts; a submit-looking one still fails the dry run
+        if dry and [b for b in blocked if '(dry: all writes blocked)' not in b]:   # live: the blocked request never left -> the normal armed submit below still applies
             res.update(status='ERROR', reason=f'a submit request was sent during fill and BLOCKED: {blocked[0][:120]}')
     import auth
     from urllib.parse import urlparse
@@ -571,6 +620,40 @@ def run_one(ctx, r, files, dry):
     # guard 2: never treat a thin form as complete (real applications upload a resume or have many fields)
     if res['status'] == 'FILLED' and not thin_ok(res, pg0):
         res.update(status='NEEDS YOU', reason=f"only {len(res.get('done', []))} field(s) filled — check this form (tab open)")
+    # Oct 28: the adapter stopped short (no Apply / Next / Submit found, form not found, fields left) -> Claude pilot
+    # drives the page forward until the final Submit is visible (pilot.py; it never clicks Submit or sign-in itself)
+    global PILOT_USED
+    if res['status'] == 'NEEDS YOU' and PILOT_USED < PILOT_LIMIT and 'jobright.ai' not in pg0.url and re.search(
+            r'no apply button|no application form|no job id|no submit button|filled, but no submit|only \d+ field|could not (find|open)|'
+            r'still empty|did not leave|not complete|timeout', res.get('reason') or '', re.I) and not re.search(
+            r'captcha|closed|no longer|already applied|site limit|limiting applications|sign in|create (an )?account|log ?in',
+            res.get('reason') or '', re.I):
+        PILOT_USED += 1
+        try:
+            import pilot
+            pg_p = res.get('page') or pg0
+            out = pilot.run(pg_p, job, [res.get('reason') or ''] + [str(u) for u in (res.get('unknown') or [])][:8])
+            print('pilot:', out['state'], '|', '; '.join(out['log'])[:500])
+            res['page'] = out['page']; pg0 = out['page']
+            tag = 'pilot: ' + '; '.join(out['log'][-4:])[:200]
+            if out['state'] == 'submitted':   # a pilot click ended on a confirmation page: it WAS sent, record it truthfully
+                res.update(status='SUBMITTED', reason=f"submitted by a pilot click (confirmation page seen) — {tag}")
+                with open(config.DATA / 'submissions.jsonl', 'a') as fh:
+                    fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(), 'company': r.get('Company'), 'role': r.get('Position'),
+                                         'ats': res.get('ats'), 'url': out['page'].url, 'note': 'pilot click'}) + '\n')
+                return res
+            if out['state'] == 'ready':
+                res.update(status='FILLED', reason=tag); res['done'] = list(res.get('done') or []) + ['Claude pilot']
+            elif out['state'] == 'gov_id':
+                res.update(status='CANCELLED', reason=f"CANCELLED – the application asks for a government ID: {out['question']}")
+                return res
+            elif out['state'] == 'closed': res['reason'] = f"posting closed ({tag})"
+            elif out['state'] == 'login': res['reason'] = f"sign in or create account ({tag})"
+            elif out['state'] == 'captcha': res['reason'] = f"CAPTCHA ({tag})"
+            elif out['state'] == 'need_human': res['reason'] = f"question only you can answer: {out['question'][:200]} ({tag})"
+            else: res['reason'] = f"{res.get('reason')} | {tag}"
+        except Exception as e:
+            print('pilot failed:', str(e)[:150])
     # sign-in / account wall -> auth (switch-gated), then run the adapter again on the same tab
     # (never on LinkedIn: that's your personal account -- sign in to it once by hand in the apply window)
     # Decide by where the row ENDED UP (LinkedIn rows usually land on Workday/Eightfold/...), not where it started.
@@ -677,7 +760,8 @@ def main():
                     if 'linkedin.com/feed' not in old.url: old.close()
                 except Exception:
                     pass
-        li_limited = False
+        from ats.linkedin import limited_today
+        li_limited = limited_today()   # Oct 28: LinkedIn daily Easy Apply limit hit earlier today -> skip LinkedIn rows
         import faulthandler
         for r in rows:
             # Oct 20: one row (Akuna) hung a run for 40 min and blocked every later run (lock). Watchdog: after 25 min on
@@ -700,6 +784,11 @@ def main():
                 try: ctx.tracing.start(screenshots=True, snapshots=True, sources=False); tracing = True
                 except Exception as e: print('trace start failed:', str(e)[:100])
             try:
+                if r.get('id') and not a.pdf and not a.dry:   # Oct 28: rows built by an older generator get a current resume first
+                    import regen
+                    if regen.ON and not regen.current(r):
+                        try: print('  resume rebuilt' if regen.refresh(r) else '  resume kept (job post unreadable)')
+                        except Exception as e: print('  resume rebuild failed, using the old one:', str(e)[:120])
                 files = job_files(r, a.pdf) if (r.get('id') or a.pdf) else dict(pdf=None, docx=None, cover_txt=None, cover_text='')
                 res = run_one(ctx, r, files, a.dry)
                 if res['status'] == 'ERROR' and re.search(r'timeout|timed out|net::err', res.get('reason') or '', re.I):
@@ -726,6 +815,7 @@ def main():
                 li_limited = True   # LinkedIn answered 429: stop hitting it this run; this row is retried next hour
                 print('LinkedIn rate limit hit -> skipping the remaining LinkedIn rows this run')
                 close_forms(ctx); continue
+            if 'daily Easy Apply limit' in (res.get('reason') or ''): li_limited = True
             results.append((r, res))
             if not a.dry and re.search(r'site limit: (?!.*allows one application)|limiting applications', res.get('reason') or '', re.I):
                 note_limit(r.get('Company'))

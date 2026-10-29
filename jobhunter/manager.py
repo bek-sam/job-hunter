@@ -9,7 +9,7 @@ Gmail/Calendar/web judgment work with a tight tool allowlist (no send, no delete
 import applicant as P
 import argparse, datetime as dt, json, os, re, subprocess, sys, tempfile
 from zoneinfo import ZoneInfo
-import config, funnel
+import config, funnel, notion
 
 CT = ZoneInfo('America/Chicago')
 PROMPTS = config.PKG / 'prompts'
@@ -143,6 +143,13 @@ def main():
             fun = funnel.get(a.fixture)
         else:
             rows = funnel.load_rows(); fun = funnel.compute(rows)
+            ghost_days = int(os.environ.get('GHOST_DAYS', '30'))   # Oct 28: Applied + silent N days -> Ghosted (status only)
+            for r in funnel.ghost_candidates(rows, ghost_days):
+                note = f"Ghosted: no reply {ghost_days}+ days after applying ({now:%b %d})"
+                if not a.dry:
+                    notion.update_row(r['id'], notion.props(Status='Ghosted', Notes=(note + ' | ' + (r.get('Notes') or ''))[:1990]))
+                r['Status'] = 'Ghosted'; print('ghosted:', r.get('Company'), '-', r.get('Position'))
+            fun = funnel.compute(rows)
     except funnel.FunnelError as e:
         print('ERROR:', e); sys.exit(2)
     REPORTS.mkdir(parents=True, exist_ok=True)
