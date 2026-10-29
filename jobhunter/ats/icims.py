@@ -82,7 +82,8 @@ def run(ctx, page, job):
             except Exception: pass
         sb = fr.locator('#enterEmailSubmitButton, input[type="submit"]:visible, button[type="submit"]:visible')
         if sb.count():
-            sb.first.click(timeout=8000)
+            try: sb.first.click(timeout=8000)
+            except Exception: em.first.press('Enter')   # covered/disabled button (Oct 29 traceback): Enter submits the email step
         elif not click_text(fr, r'^\s*(next|log ?in|continue|submit)\s*$'):
             em.first.press('Enter')
         page.wait_for_timeout(4000); fr = _icims_frame(page)
