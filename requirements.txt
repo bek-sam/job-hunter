@@ -3,4 +3,4 @@ python-docx>=1.2.0
 pikepdf>=10.17.0
 # pypdf: older versions have known vulnerabilities (49 Dependabot alerts)
 pypdf>=6.21.2
-playwright>=1.63.0
+playwright>=1.64.1
