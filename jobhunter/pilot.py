@@ -107,6 +107,9 @@ def _act(frame, page, snap, a, job):
             try: on_page = frame.evaluate('u => [...document.querySelectorAll("a[href]")].some(a => a.href === u)', a['id'])
             except Exception: on_page = False
             if not on_page: return 'refused nav to another site (not a link on this page)'
+        opened = job.setdefault('_pilot_opened', [])   # ADP / iCIMS Oct 29: reloading the same URL 3 times only burned steps
+        if a['id'] in opened: return 'refused: this URL was already reopened once — try something else or report stuck'
+        opened.append(a['id'])
         page.goto(a['id'], wait_until='domcontentloaded', timeout=30000); page.wait_for_timeout(3000)
         return 'opened ' + a['id'][:60]
     if op == 'nav':
