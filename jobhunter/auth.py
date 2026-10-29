@@ -88,7 +88,8 @@ def _click(page, rx, fallback_css=None):
     btn = page.get_by_role('button', name=re.compile(rx, re.I))
     if not _vis(btn) and fallback_css: btn = page.locator(fallback_css)
     if _vis(btn):
-        btn.first.click(timeout=8000); return True
+        try: btn.first.click(timeout=8000); return True
+        except Exception: return False   # covered/disabled button (Oct 29 traceback): report it, don't error the row
     return False
 
 
