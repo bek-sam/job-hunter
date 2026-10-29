@@ -36,6 +36,16 @@ def rows_to_fill():
     # Oct 23: entry-level titles get ~4x the OA/interview rate (2.9% vs 0.7% of Sep-Oct 18 applications) -> they go first
     entry = lambda r: bool(ENTRY_TITLE.search(r.get('Position') or '')) or r.get('Type') in ('New Grad', 'Internship')
     fast.sort(key=lambda r: (entry(r), r['created'][:13], fit(r)), reverse=True)
+    # Oct 29: rows older than 48 h were never picked again (1,364 of 1,427 open rows) -> after the fresh rows, newest first
+    days = float(os.environ.get('BACKLOG_DAYS', '14'))
+    if days > 2:
+        old_since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
+        backlog = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
+                                        {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
+                                        {'timestamp': 'created_time', 'created_time': {'on_or_after': old_since}},
+                                        {'timestamp': 'created_time', 'created_time': {'before': since}}]})
+        backlog.sort(key=lambda r: (entry(r), r['created'][:10], fit(r)), reverse=True)
+        fast += backlog
     done_states = {'Applied', 'Closed', 'Rejected', 'OA', 'Interview', 'Offer', 'Ghosted'}
     tried = attempts()
     cutoff = time.time() - RETRY_HOURS * 3600
