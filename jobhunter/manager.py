@@ -172,7 +172,6 @@ def main():
     title = f"Manager Report — {now:%Y-%m-%d} ({'early' if now.hour < 12 else 'evening'}, local)"
     (REPORTS / f'{title}.md').write_text(md)
     try:
-        import notion
         slot = 'early' if now.hour < 12 else 'evening'
         page = notion.create_row({'Name': {'title': notion._rt(title)}, 'Date': {'date': {'start': f'{now:%Y-%m-%d}'}},
                                   'Kind': {'select': {'name': 'Manager Report'}}, 'Slot': {'select': {'name': slot}},
