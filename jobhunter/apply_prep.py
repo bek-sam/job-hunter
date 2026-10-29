@@ -306,6 +306,18 @@ def recent_fails(hours=48):
     return out
 
 
+def prune_traces(days=None):
+    """Oct 29: .trace.zip recordings grew 2-4 GB a day and filled the disk (9.4 GB). Keep them TRACE_KEEP_DAYS (1);
+    the small .json/.html/.png notes stay (needs_answers.py reads the .json). Never raises."""
+    days = float(os.environ.get('TRACE_KEEP_DAYS', '1')) if days is None else days
+    cutoff = time.time() - days * 86400
+    for f in (config.DATA / 'failures').glob('*/*.zip'):
+        try:
+            if f.stat().st_mtime < cutoff: f.unlink()
+        except Exception:
+            pass
+
+
 def save_failure(r, res):
     """Oct 26: every row that stops short keeps a screenshot, the page HTML and its still-empty required labels in
     data/failures/<date>/ -- "only 2 fields filled" alone never said WHICH field broke. Never raises."""
@@ -720,6 +732,7 @@ def main():
     ap.add_argument('--ids', help='comma-separated Notion page ids (exact rows)')
     ap.add_argument('--ats', help='open rows of any age whose Link is on these systems, e.g. greenhouse,ashby,lever')
     a = ap.parse_args()
+    prune_traces()
     from playwright.sync_api import sync_playwright
     import browser
     if not a.url and not config.NOTION_TOKEN:
