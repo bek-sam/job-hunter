@@ -19,7 +19,7 @@ from gen_v5 import NAME, CONTACT, CANON, FAMILY, THEMES, canon, _run, _link, _pa
 import applicant as P, config
 
 OUT = os.environ.get('RESUME_OUT', str(config.RESUMES))
-VERSION = 'v6.3'   # written to the Notion row's Notes, so replies can be compared per resume version
+VERSION = 'v6.4'   # written to the Notion row's Notes, so replies can be compared per resume version
 FACTS = config.DATA / 'resume_facts.json'
 
 # ---------- fixed facts: profile.json "resume_v6" (git-ignored) ----------
@@ -244,8 +244,9 @@ RENAME = {  # recruiter guide: name the tool, not the category
     'Testing': 'Unit & Integration Testing', 'ETL': 'ETL Pipelines', 'Data Pipelines': 'ETL Pipelines', 'Unit Testing': 'Unit & Integration Testing', 'Integration Testing': 'Unit & Integration Testing',
 }
 # Unproven JD skills allowed per resume (-1 = all, 0 = only skills you have evidence for). Proven ones are always listed first.
-UNPROVEN_MAX = int(os.environ.get('SKILLS_UNPROVEN_MAX', SK.get('unproven_max', 0)))
-SKILLS_MAX = int(os.environ.get('SKILLS_MAX', SK.get('max', 15)))   # whole Skills section, Certifications excluded
+# Oct 31 (Bekbolsun): every skill the JD names goes on the resume, and each Skills line is filled to its full width with his
+# other skills (base list, then evidence/Notion tech). SKILLS_UNPROVEN_MAX overrides.
+UNPROVEN_MAX = int(os.environ.get('SKILLS_UNPROVEN_MAX', '-1'))
 EXTRA_CANON = {  # JD terms gen_v5.CANON doesn't know; without these they were silently dropped
     'xcode': 'Xcode', 'uikit': 'UIKit', 'core data': 'Core Data', 'combine': 'Combine', 'swiftdata': 'SwiftData',
     'rhel': 'RHEL', 'red hat enterprise linux': 'RHEL', 'api testing': 'API Testing', 'jest': 'Jest', 'cypress': 'Cypress',
@@ -269,6 +270,30 @@ def proven():
             out.add(t.lower()); n = canon(re.sub(r'\s*\(.*?\)', '', t))
             if n: out.add(RENAME.get(n, n).lower())
     return out
+
+
+FILL_CAT = {'Supabase': 'Databases & Data', 'Prisma': 'Databases & Data', 'pandas': 'Databases & Data', 'Zod': 'Frameworks & Libraries'}
+
+
+def fill_pool(key):
+    """His other skills for padding the lines, most-used first: score.EVIDENCE (curated) + Notion Experience/Projects
+    tech that the canon list knows (raw tags like 'Node 22', 'better-sqlite3', 'demo app' are skipped)."""
+    import score, collections
+    n_used, src = collections.Counter(), {}
+    f = _facts()
+    raw = [(x, 'evidence') for x in score.EVIDENCE]
+    for r in f.get('experience', []) + f.get('projects', []):
+        raw += [(x, 'notion') for x in r.get('tech', [])]
+    for x, s in raw:
+        base = re.sub(r'\s+v?\d[\d.x]*$', '', re.sub(r'\s*\(.*?\)', '', x).strip())
+        n = RENAME.get(x) or canon6(x) or canon6(base) or (x if s == 'evidence' and '(' not in x else None)
+        n = n and RENAME.get(n, n)
+        if not n or SOFT.match(n) or len(n) > 40: continue
+        cat = FILL_CAT.get(n) or next(k for k, rx in CATRX if re.search(rx, n.lower()))
+        if cat == 'Concepts' and s == 'notion' and not re.search(CATRX[0][1], n.lower()): continue   # catch-all: tools are not concepts
+        n_used[n] += 1; src.setdefault(n, cat)
+    drop = ROLE_DROP.get(key, set())
+    return [(n, src[n]) for n in sorted(src, key=lambda n: (-n_used[n], n.lower())) if n not in drop]
 
 
 LINE = 122  # characters that fit on one skills line at 10 pt (label included)
@@ -316,28 +341,19 @@ def build_skills(spec, key, tight=0):
     if key in ('ai', 'data'): order.remove('AI / ML'); order.insert(1, 'AI / ML')
     if not any(p in GENERIC or p.lower() in ('system design', 'distributed systems') for p in pri['Concepts']):
         lines['Concepts'] = [i for i in lines['Concepts'] if i not in GENERIC]
-    # Oct 28: ~40 listed tools with little proof read as keyword stuffing -> at most SKILLS_MAX in all:
-    # proven JD skills first (category order), then base skills fill what is left
-    budget, take = SKILLS_MAX, {c: [] for c in CATS}
-    for src in (pri, lines):
-        for c in order:
-            for i in src[c]:
-                if budget > 0 and i not in take[c]: take[c].append(i); budget -= 1
-    for c in order:   # a one-item line ("Concepts: GraphQL") reads as an orphan: add a base item, take one off the biggest line
-        more = [i for i in lines[c] if i not in take[c]]
-        donor = max(order, key=lambda d: len([i for i in take[d] if i not in pri[d]]) if d != c else -1)
-        spare = [i for i in take[donor] if i not in pri[donor]]
-        if len(take[c]) == 1 and more and spare and len(take[donor]) > 3:
-            take[donor].remove(spare[-1]); take[c].append(more[0])
+    # Oct 31 (Bekbolsun): no cap -- all JD skills first, then base skills, then his other skills until each line is full.
+    # A line gets as many printed lines as its JD skills need (at least 1); extras never start a new line.
+    pool = fill_pool(key)
     out = []
     for c in order:
-        items = [i for i in pri[c] if i in take[c]] + [i for i in lines[c] if i in take[c] and i not in pri[c]]
+        extra = lines[c] + [n for n, cat in pool if cat == c and n not in lines[c]]
+        items = list(pri[c])
         room = LINE - len(c) - 2 - tight
-        # JD terms may wrap to a 2nd line; base extras are dropped so a line never spills by a word or two
-        cap = room if c == 'Concepts' or len(', '.join(pri[c])) <= room else 2 * room   # Concepts: one line, always
-        while len(', '.join(items)) > cap and len(items) > (1 if c == 'Concepts' else len(pri[c])): items.pop()
-        if c == 'Concepts' and not any(p in GENERIC or p.lower() in ('system design', 'distributed systems') for p in pri[c]):
-            items = [i for i in items if i not in GENERIC]  # generic concepts only when the job asks for them (guide: no filler)
+        cap = room * max(1, -(-len(', '.join(items)) // room))
+        for e in extra:
+            el = e.lower()
+            if any(_covers(el, i.lower()) or _covers(i.lower(), el) for i in items): continue
+            if len(', '.join(items + [e])) <= cap: items.append(e)
         if items: out.append((c, ', '.join(items)))
     out.append(('Certifications', CERT))
     return out

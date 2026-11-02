@@ -54,14 +54,16 @@ MAX_CATCHUP_MIN = int(os.environ.get('MAX_CATCHUP_MIN', '1440'))   # auto catch-
 FIT_GATE = int(os.environ.get('FIT_GATE', '70'))
 CAREER_EVAL = os.environ.get('CAREER_EVAL', '1') == '1'        # Career-Ops LLM evaluation after FIT_GATE (Oct 28 2026)
 EVAL_GATE = float(os.environ.get('EVAL_GATE', '4.0'))          # Career-Ops: apply only at >= 4.0 / 5
+# Oct 31 (Bekbolsun): evaluate Full-time roles only; New Grad / Internship / Contract (community.job_type) skip the eval
 EVAL_MODEL = os.environ.get('EVAL_MODEL', 'sonnet')
 # Oct 28: one application per company per 30 days (was 2 per 7 days: 323 of 1,112 submissions were repeat companies,
 # SpaceX x10, Notion x8 -- recruiters read that as spam; SpaceX rejected on "application limit exceeded")
-PER_COMPANY_MAX = int(os.environ.get('PER_COMPANY_MAX', '1'))
+# Oct 31: turned off by Bekbolsun (0 = no per-company limit); set >0 to bring it back
+PER_COMPANY_MAX = int(os.environ.get('PER_COMPANY_MAX', '0'))
 PER_COMPANY_DAYS = int(os.environ.get('PER_COMPANY_DAYS', '30'))
 # 'all' = pass every JD tech term to the generator (same as the cloud Fast Hunter);
 # 'evidence' = only terms he has real evidence for (default since Oct 28: a 40-tool list read as keyword stuffing)
-SKILLS_MODE = os.environ.get('SKILLS_MODE', 'evidence')
+SKILLS_MODE = os.environ.get('SKILLS_MODE', 'all')   # Oct 31 (Bekbolsun): every JD skill on the resume
 # Oct 28: only core SWE titles (software / full-stack / backend / frontend / web / mobile / iOS / AI-ML); 0 = old scoring only
 TITLE_STRICT = os.environ.get('TITLE_STRICT', '1') == '1'
 

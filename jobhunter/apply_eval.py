@@ -54,7 +54,7 @@ def candidates(ats, st):
         if (r.get('Date Applied') or '') >= since[:10]: per_co[co(r)] = per_co.get(co(r), 0) + 1
     out = [r for r in rows if re.search(ATS_RX[ats], r.get('Link') or '', re.I) and r['id'] not in st['tried']
            and not score.STAFFING.search(r.get('Company') or '') and not score.blocked('', r.get('Position') or '')
-           and 'LINK LOST' not in (r.get('Notes') or '') and per_co.get(co(r), 0) < config.PER_COMPANY_MAX]
+           and 'LINK LOST' not in (r.get('Notes') or '') and (not config.PER_COMPANY_MAX or per_co.get(co(r), 0) < config.PER_COMPANY_MAX)]
     out.sort(key=lambda r: (fit(r), r.get('created') or ''), reverse=True)
     return out
 

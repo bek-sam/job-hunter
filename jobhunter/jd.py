@@ -77,9 +77,11 @@ def linkedin(url):
     ago = re.search(r'posted-time-ago__text[^>]*>\s*([^<]+)<', h)
     body = re.search(r'(?s)show-more-less-html__markup[^>]*>(.*?)</div>', h)
     apply_url = re.search(r'companyApplyUrl[^"]*"\s*:\s*"([^"]+)"', h)
+    loc = re.search(r'topcard__flavor--bullet[^>]*>\s*([^<]+?)\s*<', h)
     return dict(text=text_of(body.group(1) if body else h), posted=_iso(d.group(1)) if d else None,
                 exact=bool(d and 'T' in d.group(1)), posted_label=ago and ago.group(1).strip(),
-                apply_url=apply_url and H.unescape(apply_url.group(1)), ats='linkedin')
+                apply_url=apply_url and H.unescape(apply_url.group(1)), ats='linkedin',
+                location=loc and H.unescape(loc.group(1)).strip(), closed='No longer accepting applications' in h)
 
 
 def browser(url):

@@ -223,7 +223,7 @@ def main():
                 stats['dupes'] += 1; continue
             pairs = set(pairs) | {key}   # same company + title twice in one run (multi-location reposts) -> build once
             n_co = sum(n for c, n in per_co.items() if same_co(c, key[0]))
-            if n_co >= config.PER_COMPANY_MAX:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
+            if config.PER_COMPANY_MAX and n_co >= config.PER_COMPANY_MAX:   # Oct 13: Sephora x3, Clera x2, ElevenLabs x4 ("limiting applications")
                 stats['dupes'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: already {n_co} role(s) in {config.PER_COMPANY_DAYS} days"); continue
             if hunt.foreign(r.get('location')) or hunt.non_us_title(r['title']):   # every source, not only hunt.py's own
                 stats['blocked'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: non-US ({r.get('location')})"); continue
@@ -248,7 +248,7 @@ def main():
                 stats['low_fit'] += 1; why_dropped.append(f"{r['company']} – {r['title']}: fit {sc['fit']}")
                 con.execute('insert or replace into seen values (?,?,?,?,?,?)', (r['url'], r['company'], r['title'], 'low', sc['fit'], t0.isoformat()))
                 continue
-            if config.CAREER_EVAL and not a.dry_run:   # Career-Ops evaluation (vendor/career-ops), fails open
+            if config.CAREER_EVAL and not a.dry_run and __import__('community').job_type(r['title'], kind=r['kind']) == 'Full-time':   # Career-Ops eval, Full-time only (Oct 31); fails open
                 try:
                     import career_eval
                     ev = career_eval.evaluate(r, text, job='fast_hunter_eval')

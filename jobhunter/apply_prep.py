@@ -182,7 +182,7 @@ def company_recent(company, role=''):
                 hits.append(d['at'][:10])
     except Exception:
         pass
-    return max(hits) if len(hits) >= config.PER_COMPANY_MAX else None
+    return max(hits) if config.PER_COMPANY_MAX and len(hits) >= config.PER_COMPANY_MAX else None
 
 
 def emailed_confirmation(r):

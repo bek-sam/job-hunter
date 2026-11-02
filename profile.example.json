@@ -749,7 +749,7 @@
       "HTML",
       "CSS"
     ],
-    "unproven_max": 0
+    "unproven_max": -1
   },
   "_skills_note": "skills.base = what you can show in real work; unproven_max = how many JD skills you DON'T have evidence for may still be listed (0 = none, -1 = all). Keep it 0 unless you really know them.",
   "owner_answers": {
