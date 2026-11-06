@@ -25,9 +25,18 @@ ENTRY_TITLE = re.compile(r'new grad|graduate|intern|co-?op|entry|junior|\bjr\b|a
                          r'\b(i|1)\b(?!\w)|apprentice|fellow|rotational|development program|leadership program', re.I)
 
 
+# Approval queue (Nov 6, like Scale.jobs' "approve the roles" step): APPROVAL_QUEUE=1 -> scheduled runs fill only rows
+# you set to Status "Approved" (any age) + FILL NOW rows; new rows wait in "To apply" until you approve them.
+APPROVAL = os.environ.get('APPROVAL_QUEUE') == '1'
+
+
 def rows_to_fill():
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)).isoformat()
-    fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
+    if APPROVAL:
+        fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'Approved'}},
+                                     {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}}]})
+    else:
+        fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                  {'property': 'Notes', 'rich_text': {'contains': 'FAST'}},
                                  {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
                                  {'timestamp': 'created_time', 'created_time': {'on_or_after': since}}]})
@@ -364,6 +373,34 @@ def keep_tab(ctx, before, r, res):
     return True
 
 
+PROOF = config.DATA / 'proof'
+
+
+def proof_shot(page, r, tag):
+    """Full-page screenshot as proof of what was submitted (data/proof/<date>/<row>-<tag>.png). Never raises."""
+    try:
+        d = PROOF / dt.datetime.now(CT).strftime('%Y-%m-%d'); d.mkdir(parents=True, exist_ok=True)
+        f = d / f"{(r.get('id') or 'test')[:36]}-{dt.datetime.now(CT):%H%M%S}-{tag}.png"
+        page.screenshot(path=str(f), full_page=True, timeout=20000)
+        return f
+    except Exception as e:
+        print('proof screenshot failed:', str(e)[:100]); return None
+
+
+def attach_proof(page_id, shots):
+    """Upload the proof screenshots to the row's Notion page (heading + one image block each)."""
+    shots = [s for s in shots or [] if s and os.path.exists(s)]
+    if not shots or not page_id: return
+    try:
+        blocks = [{'type': 'heading_3', 'heading_3': {'rich_text': notion._rt(f'Submission proof ({dt.datetime.now(CT):%b %d %I:%M %p %Z})')}}]
+        for s in shots:
+            fid = notion.upload_file(str(s))
+            blocks.append({'type': 'image', 'image': {'type': 'file_upload', 'file_upload': {'id': fid}}})
+        notion.append(page_id, blocks)
+    except Exception as e:
+        print('proof upload failed:', str(e)[:120])
+
+
 def thin_ok(res, page):
     """Is a FILLED form really complete? Real applications upload our resume or fill many fields.
     LinkedIn Easy Apply arrives with name/email/phone pre-filled, so it fills only 1-3 fields itself: it counts as
@@ -559,6 +596,10 @@ def run_one(ctx, r, files, dry):
         if prior:   # same posting reached through another row (EngRadar repost of RF-SMART, Oct 12: 3rd application)
             res.update(status='NEEDS YOU', reason=f"already applied — same posting was submitted {prior} (not submitting again)")
             return res
+        if 'RESUME CHECK FAILED' in (r.get('Notes') or ''):   # resume_check.py: an ATS would mis-parse this PDF
+            res.update(status='NEEDS YOU', reason='form filled, NOT submitted: the tailored resume failed the ATS parse check '
+                                                  '(see the row\'s "Resume check") — fix or replace the PDF, then submit')
+            return res
         maybe = emailed_confirmation(r)
         if maybe:   # old row: he may have applied by hand -> his call (stays Needs you, not Applied)
             res.update(status='NEEDS YOU', reason=f"form filled, NOT submitted: {maybe}")
@@ -566,7 +607,10 @@ def run_one(ctx, r, files, dry):
         armed['on'] = True                      # only auth.submit's own click may send the application
         pg_s = res.get('page') or page
         fr_s = formfill.form_frame(pg_s)   # Greenhouse embedded on a company site (Asana, PathAI Oct 20): Submit is in the iframe
+        if auth.ON('AUTO_SUBMIT'): res['proof'] = [proof_shot(pg_s, r, 'filled')]   # what was sent, before the click
         res = auth.submit(pg_s, res, frame=fr_s if fr_s is not pg_s.main_frame else None)
+        res.setdefault('proof', [])
+        if auth.ON('AUTO_SUBMIT'): res['proof'].append(proof_shot(pg_s, r, 'after-submit'))
         if res['status'] != 'SUBMITTED' and 'no confirmation' in (res.get('reason') or ''):
             ok = confirmed_by_email(r)
             if ok: res.update(status='SUBMITTED', reason=ok)
@@ -581,7 +625,8 @@ def run_one(ctx, r, files, dry):
                                          'ats': res.get('ats'), 'url': u, 'resume_bytes': os.path.getsize(files['pdf']),
                                          'resume_sha1': hashlib.sha1(open(files['pdf'], 'rb').read()).hexdigest()[:12],
                                          'cover_letter': bool(files.get('cover_text')),
-                                         'pending': res['status'] != 'SUBMITTED', 'row': r.get('id')}) + '\n')
+                                         'pending': res['status'] != 'SUBMITTED', 'row': r.get('id'),
+                                         'proof': [str(x) for x in res.get('proof') or [] if x]}) + '\n')
     return res
 
 
@@ -750,6 +795,7 @@ def main():
                 except Exception:
                     pass
                 notion.update_row(r['id'], upd)
+                if res.get('proof'): attach_proof(r['id'], res['proof'])
             # Close the form tabs after each row (Oct 12: filled forms left open submitted themselves 30 s - 3 min later).
             # Oct 13 (owner): a stopped NEEDS-YOU form stays OPEN for him to fix by hand (KEEP_TABS, max 20) and is
             # listed in data/kept_tabs.jsonl + its Notion note; everything else is closed.

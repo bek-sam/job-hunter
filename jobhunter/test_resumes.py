@@ -7,6 +7,8 @@ Exit code 0 = all pass. Writes only to a temp folder. 0 tokens, 0 Notion calls.
 """
 import applicant as P
 import json, os, re, sys, tempfile
+os.environ.setdefault('BULLET_REWORD', '0')        # regression check: bank text exactly as in Notion, no LLM call
+os.environ.setdefault('RESUME_TITLE_LINE', '0')
 from pathlib import Path
 import pypdf
 from docx import Document

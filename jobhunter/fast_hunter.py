@@ -261,6 +261,10 @@ def main():
     daily_summary(a.dry_run)
     apply_now_daily(a.dry_run)
     prune_daily(a.dry_run)
+    try:
+        import reports; reports.scheduled(a.dry_run)   # daily apply report (10 PM) + 14-day response review
+    except Exception as e:
+        print('reports failed:', str(e)[:120])
 
 
 def prune_daily(dry):
@@ -345,8 +349,24 @@ def build(r, j, sc, dry=False):
         md += '\n\n### Skills listed from the job post without a bullet showing them (be ready to talk about these)\n' + ', '.join(res['unbacked'])
     if res.get('numbers'):  # recruiter guide: every number on the resume is an interview question
         md += '\n\n### Be ready to explain (numbers on this resume)\n' + '\n'.join(f'- {b}' for b in res['numbers'])
-    import notion
     folder = res['folder']
+    # final-PDF checks (resume_check.py): ATS parse problems block auto-submit; coverage + gaps go on the page
+    try:
+        import resume_check as RC
+        pdf_path = os.path.join(folder, P.file('Resume', 'pdf'))
+        txt = RC.pdf_text(pdf_path)
+        errs = RC.parse_check(pdf_path, txt)
+        rep = RC.match_report(txt, spec['required'], spec['preferred'])
+        notes += f" | cov {rep['required_pct']}%"
+        if errs: notes += ' | RESUME CHECK FAILED: ' + '; '.join(errs)[:200]
+        md += '\n\n' + RC.markdown(rep, errs, res.get('reworded') or ())
+        item['coverage'] = rep['required_pct']
+    except Exception as e:
+        print('resume check skipped:', str(e)[:100])
+    if w.get('knockouts'):   # hard screens from the JD: worth a look before applying
+        md += '\n\n### Knockout requirements in the job post\n' + '\n'.join(f'- {k}' for k in w['knockouts'][:8])
+        notes += ' | knockouts: ' + '; '.join(w['knockouts'][:3])[:160]
+    import notion
     pdf_id = notion.upload_file(os.path.join(folder, P.file('Resume', 'pdf')))
     docx_id = notion.upload_file(os.path.join(folder, P.file('Resume', 'docx')))
     extra = []

@@ -53,6 +53,12 @@ scripts/schedule.sh uninstall                                       # remove eve
 - `jobhunter/gen_v6.py` — resume generator; `applicant.py` — loads `profile.json`
 - `jobhunter/formfill.py` + `ats/<site>.py` — rule-based form filling per ATS (Workday, Greenhouse, Ashby, Lever, …)
 - `jobhunter/auth.py` — sign-in / account creation / submit, each behind its own `.env` switch (all off by default)
+- `jobhunter/reword.py` — swaps bank-bullet words for the job's exact terms (code-validated); `resume_check.py` — ATS
+  parse check + required-term coverage / gap report on the final PDF (a failed parse check blocks auto-submit)
+- `skills/tailor-resume/SKILL.md` — the tailoring rulebook (JD fields, bullet rubric, cover-letter rules; `packet.py`
+  loads its cover-letter section). Link it into Claude Code: `ln -s "$PWD/skills/tailor-resume" ~/.claude/skills/`
+- `jobhunter/reports.py` — daily apply report (10 PM) and a 14-day response-rate review, both in Notion Reports;
+  every auto-submit attaches before/after screenshots to the row as proof
 - `jobhunter/manager.py`, `outreach.py`, `prompts/` — optional LLM coach and recruiter-outreach drafts
 
 ## Rules the code enforces

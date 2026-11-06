@@ -151,14 +151,21 @@ JD_TOPICS = ['dashboard', 'visualization', 'charts', 'analytics', 'maps', 'real-
              'performance', 'inventory', 'logistics', 'e-commerce', 'customer']
 
 
+class Terms(set):
+    """JD terms for bullet scoring; .req = the REQUIRED ones (and their canonical names), which count double."""
+    req = frozenset()
+
+
 def _terms(spec):
-    out = set()
-    for t in spec.get('required', []) + spec.get('preferred', []):
-        out.add(t.lower()); n = canon6(t)
-        if n: out.add(n.lower())
+    out, req = set(), set()
+    for i, t in enumerate(spec.get('required', []) + spec.get('preferred', [])):
+        names = {t.lower()} | ({canon6(t).lower()} if canon6(t) else set())
+        out |= names
+        if i < len(spec.get('required', [])): req |= names
     jd = (spec.get('jd_text') or '').lower()
     out |= {w for w in JD_TOPICS if re.search(r'\b' + re.escape(w), jd)}
-    return {t for t in out if len(t) > 1}
+    t = Terms(x for x in out if len(x) > 1); t.req = frozenset(x for x in req if len(x) > 1)
+    return t
 
 
 LISTY = re.compile(r'\bincluding\b(?:[^,]*,){3,}')
@@ -169,7 +176,8 @@ def _score(b, key, terms, maxlen):
     order = TAG_ORDER.get(key, TAG_ORDER['general'])
     tag = max((len(order) - order.index(t) for t in b['tags'] if t in order), default=0)
     low = b['text'].lower()
-    hits = sum(1 for t in terms if re.search(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])', low))
+    hit = [t for t in terms if re.search(r'(?<![a-z])' + re.escape(t) + r'(?![a-z])', low)]
+    hits = len(hit) + sum(1 for t in hit if t in getattr(terms, 'req', ()))   # required JD terms count double
     # recruiter guide: quantified impact wins; short task-only bullets ("Built forms with X") lose
     return (3 * tag + 3 * hits + (3 if re.search(r'\d', b['text']) else 0) - (3 if len(b['text']) < 90 else 0)
             + (4 if b.get('confirmed') and tag else 0) + (5 if b.get('boost') and tag else 0)  # boost: pinned bullet marked to outrank others
@@ -394,7 +402,23 @@ def plan(spec, level, revert=None):
     if len(courses) < 6:  # can't fit 6 on one line -> use two well-filled lines (8 courses) instead of one orphan word
         courses = ordered[:8]
     skills = build_skills(spec, key, tight=c['tight'])
-    return dict(headline=headline(spec), location=location(spec), edu=edu, courses=courses, skills=skills, exp=exp, projs=projs, lead=lead)
+    rw = spec.get('_reword') or {}   # validated JD-term rewrites of bank bullets (reword.py)
+    if rw:
+        exp = [e[:4] + ([rw.get(b, b) for b in e[4]],) for e in exp]
+        projs = [e[:4] + ([rw.get(b, b) for b in e[4]],) for e in projs]
+    return dict(headline=headline(spec), location=location(spec), edu=edu, courses=courses, skills=skills, exp=exp, projs=projs,
+                lead=lead, title_line=title_line(spec))
+
+
+def title_line(spec):
+    """Opt-in (RESUME_TITLE_LINE=1): the posting's own title under the contact line -- recruiters filter by title
+    (Jobscan survey: 55%). Off by default: the Oct 23 resumes with no headline line got 7 of 9 OAs."""
+    if os.environ.get('RESUME_TITLE_LINE') != '1': return None
+    t = re.sub(r'\s*[\(\[].*?[\)\]]', '', spec.get('position') or '')            # "(Remote)", "[2027]"
+    t = re.sub(r'\s*[-–|,]\s*(remote|hybrid|on-?site|[A-Z][a-z]+,? [A-Z]{2}|\d{4,}.*)$', '', t, flags=re.I)
+    t = re.sub(r'\b(req|job)\s*#?\s*\w*\d\w*', '', t, flags=re.I)
+    t = re.sub(r'\s+', ' ', t).strip(' -–|,')
+    return t if 3 <= len(t) <= 60 else None
 
 
 def location(spec):
@@ -428,6 +452,8 @@ def render(p, fs=10.0, width=7.5):
     for i, (txt, url) in enumerate([(p['location'], None)] + CONTACT[1:]):
         if i: _run(cp_, ' | ', fs)
         _link(cp_, url, txt, fs) if url else _run(cp_, txt, fs)
+    if p.get('title_line'):
+        _run(_para(doc, align=WD_ALIGN_PARAGRAPH.CENTER), p['title_line'], fs + 1, bold=True)
 
     head('Education')
     for i, (school, place, degree, gpa, date) in enumerate(p['edu']):
@@ -487,6 +513,11 @@ def _bullet_of(text):
 
 def make(spec):
     use_trims(role_of(spec)[1])
+    if '_reword' not in spec:   # one cheap call: JD-term synonyms in bank bullets (never pinned ones), validated in code
+        import reword
+        f = _facts(); prefixes = [e[0] for e in EXP] + [PROJ[n][0] for n in PROJ if n in PROJ_ONLY]
+        bank = list(dict.fromkeys(b['text'] for pre in prefixes for b in _bank(f, pre)))
+        spec['_reword'] = reword.plan(spec, bank)
     folder = os.path.join(OUT, spec.get('file', spec['id'])); os.makedirs(folder, exist_ok=True)
     dp = os.path.join(folder, P.file('Resume', 'docx'))
     pages, last = {}, [None]
@@ -519,7 +550,9 @@ def make(spec):
         names |= {re.sub(r'\s*\(.*?\)', '', n).strip() for n in names}
         return any(n and re.search(r'(?<![a-z0-9])' + re.escape(n) + r'(?![a-z0-9+#])', shown) for n in names)
     unbacked = list({t.lower(): t for t in reversed(jd_sk) if t and not SOFT.match(t.strip()) and not seen(t)}.values())[::-1]
-    return dict(id=spec['id'], folder=folder, pages=n, level=level, skills=p['skills'], headline=p['headline'], key=role_of(spec)[1],
+    rw = spec.get('_reword') or {}
+    reworded = [(o, n) for o, n in rw.items() if n in bullets]
+    return dict(reworded=reworded, id=spec['id'], folder=folder, pages=n, level=level, skills=p['skills'], headline=p['headline'], key=role_of(spec)[1],
                 projects=[x[0] for x in p['projs']], numbers=[b for b in bullets if re.search(r'\d', b)], unbacked=unbacked)
 
 

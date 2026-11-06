@@ -19,7 +19,7 @@ BEST_FOR = ('AI/ML', 'Backend', 'Full-stack', 'Frontend', 'iOS/Mobile', 'Data', 
 
 DBS = [  # (env key, title, title property, other properties)
     ('NOTION_APPS_DS', 'Applications', 'Company', {
-        'Position': TXT, 'Status': SEL('To apply', 'Needs you', 'Applied', 'OA', 'Interview', 'Offer', 'Rejected', 'Ghosted', 'Closed'),
+        'Position': TXT, 'Status': SEL('To apply', 'Approved', 'Needs you', 'Applied', 'OA', 'Interview', 'Offer', 'Rejected', 'Ghosted', 'Closed'),
         'Notes': TXT, 'Link': URL, 'Location': TXT, 'Date Posted': DATE, 'Date Applied': DATE, 'Last Contact': DATE,
         'Apply Via': SEL(*VIA), 'Outreach': SEL('Sent', 'Follow-up 1', 'Follow-up 2', 'Replied', 'No contact found'),
         'Recruiters': TXT, 'LinkedIn': SEL('Queued', 'Invited', 'Connected', 'Messaged', 'Replied')}),
@@ -30,7 +30,7 @@ DBS = [  # (env key, title, title property, other properties)
         'Role': TXT, 'Dates': TXT, 'Kind': SEL('Startup / product', 'Work-related', 'Personal', 'Hackathon', 'Team project', 'Class project'),
         'Tech': TXT, 'Key numbers': TXT, 'Repos / links': TXT, 'Best for': MULTI(*BEST_FOR), 'Order': NUM}),
     ('NOTION_REPORTS_DS', 'Reports', 'Name', {
-        'Date': DATE, 'Kind': SEL('Manager Report', 'Job Search Log', 'Apply Now'), 'Slot': SEL('early', 'evening', 'night', 'weekly', 'daily'),
+        'Date': DATE, 'Kind': SEL('Manager Report', 'Job Search Log', 'Apply Now', 'Daily Apply Report', 'Response Review'), 'Slot': SEL('early', 'evening', 'night', 'weekly', 'daily'),
         'Source': SEL('local'), 'Archived': {'checkbox': {}}}),
     ('NOTION_COMMUNITY_DS', 'Community Job Board', 'Company', {
         'Job Title': TXT, 'Type': SEL('Internship', 'New Grad', 'Full-time', 'Contract'), 'Location': TXT, 'Date Posted': DATE,
