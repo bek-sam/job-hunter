@@ -4,6 +4,7 @@
 2) "Notice period" dropdowns answered by the start-date rule ("Available immediately" is not true: <1 month notice).
 Cleared fields go back to `unknown` so the row becomes NEEDS YOU instead of carrying a wrong answer."""
 import re
+import applicant as P
 import formfill
 
 RULE_VALUES = {v for _, v, _ in formfill.RULES if v}
@@ -38,8 +39,10 @@ def check(frame, done, unknown):
                 try: still = loc.input_value(timeout=1000)
                 except Exception: pass
                 done[:] = [x for x in done if x != label]
+                np_, sd = P.answer('notice_period'), P.answer('start_date')
+                yours = ', '.join(x for x in ((f'notice {np_[0]}' if np_ else ''), (f'start {sd[0]}' if sd else '')) if x)
                 unknown.append(('Notice period: CHANGE the auto-picked "Available immediately" (wrong) — ' if still else 'Notice period — ')
-                               + 'yours: current intern, < 1 month notice, start Dec 30, 2026')
+                               + (f'yours (profile.json): {yours}' if yours else 'answer it from your situation'))
         except Exception:
             unknown.append(label[:160] + ' (check this answer)')
     return done, unknown

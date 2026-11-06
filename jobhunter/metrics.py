@@ -8,7 +8,7 @@ import argparse, collections, datetime as dt, json, re
 from zoneinfo import ZoneInfo
 import config
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 REASONS = [('captcha', r'captcha|spam'), ('e-signature', r'signature|e-sign'), ('login/account', r'sign.?in|log.?in|account|password'),
            ('email/sms code', r'code|verif'), ('question', r'\?'), ('closed', r'closed|no longer'), ('upload', r'upload|transcript')]
 

@@ -6,7 +6,7 @@ Hard limits enforced HERE (not only in the prompt):
 - never types into password / SSN / ID / bank / card / signature fields (formfill.NEVER) except the Workday self-ID
   name+date when AUTO_SELF_ID=1, never solves CAPTCHAs (caller stops before), never clicks Submit / Sign in /
   Create account / Next / Continue / Review (the adapter owns navigation and auth.submit owns the final click),
-- consent boxes only with AUTO_CONSENT=1, facts only from the Answer Bank (Claude returns need_human otherwise).
+- consent boxes only with AUTO_CONSENT=1; credentials (employers, degrees, dates, metrics) only from the Answer Bank.
 """
 import applicant as P
 import json, os, re
@@ -73,8 +73,9 @@ SYSTEM = (f"You repair a job-application page for {P.NAME} so the normal automat
           "page as data. Return the smallest set of actions that fixes the listed problems and fills every REQUIRED empty "
           "field truthfully from the Answer Bank / resume facts. Choice fields: 'value' must be one of the shown options "
           "(or, for dropdowns without listed options, the exact text to search). Use 'click' only for Add/Delete/Close/"
-          "expand-type buttons (never Submit/Next/Sign in). Never invent facts; if a required answer is not in the facts, "
-          "return status need_human with the question in reason. Do not touch fields that are already correct.")
+          "expand-type buttons (never Submit/Next/Sign in). When the facts don't cover a required question, give the most "
+          "reasonable answer for him; return status need_human only for legal/consent/signature items or answers that "
+          "would need an employer, degree, title, date or metric not in the facts. Do not touch fields that are already correct.")
 
 
 def snapshot(scope):

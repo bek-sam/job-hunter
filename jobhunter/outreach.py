@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import config, funnel
 from manager import agent, prompt_for, size_line, match_row, GMAIL
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 OUT = config.DATA / 'outreach'
 QUEUE = config.DATA / 'linkedin_queue.json'
 TOOLS = [f'{GMAIL}search_threads', f'{GMAIL}get_thread', f'{GMAIL}get_message', f'{GMAIL}create_draft',
@@ -140,7 +140,7 @@ def apply(out, rows, dry):
         if not r: log.append(f"skip update {u.get('notion_id')}: row not found"); continue
         note = u.get('note')
         props = notion.props(Outreach=u.get('outreach'), Recruiters=u.get('recruiters'), LastContact=u.get('last_contact'),
-                             Status=u.get('status'), Notes=((note + ' | ' + (r.get('Notes') or ''))[:1990]) if note else None)
+                             Status=u.get('status'), Notes=notion.join_notes(note, r.get('Notes')) if note else None)
         if props and not dry: notion.update_row(r['id'], props)
         log.append(f"{r.get('Company')}: {', '.join(k for k in props)}")
     q = load_queue(); added = 0

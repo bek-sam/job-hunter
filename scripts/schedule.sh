@@ -1,6 +1,9 @@
 #!/bin/zsh
 # Local schedules via launchd (runs while the Mac is awake; a missed slot runs on wake).
-#   scripts/schedule.sh install    # Fast Hunter hourly at :24, Apply Prep hourly at :40
+#   scripts/schedule.sh install-5          # current setup: Fast Hunter + Apply Prep every 5 min (each skips if still running)
+#   scripts/schedule.sh install-hunter-15  # Fast Hunter every 15 min only
+#   scripts/schedule.sh install-awake      # keep the Mac from idle-sleeping (caffeinate)
+#   scripts/schedule.sh install    # old hourly setup: Fast Hunter at :24, Apply Prep at :40
 #   scripts/schedule.sh install-agents   # Manager 2:47 + 18:47, Recruiter Outreach 6:52 + 21:52 (CT)
 #        -> only after the cloud Manager / Outreach tasks are paused, or drafts get duplicated
 #   scripts/schedule.sh uninstall
@@ -98,10 +101,10 @@ PLIST
     plist com.jobhunter.applyprep apply_prep $AP_MIN
     echo "installed: Fast Hunter :$FH_MIN, Apply Prep :$AP_MIN (logs in data/logs/)";;
   uninstall)
-    for l in com.jobhunter.fasthunter com.jobhunter.applyprep com.jobhunter.manager com.jobhunter.outreach; do
+    for l in com.jobhunter.fasthunter com.jobhunter.applyprep com.jobhunter.manager com.jobhunter.outreach com.jobhunter.awake; do
       launchctl bootout gui/$(id -u) "$LA/$l.plist" 2>/dev/null || true; rm -f "$LA/$l.plist"; done
     echo "removed";;
   status)
     launchctl list | grep jobhunter || echo "not installed";;
-  *) echo "usage: $0 install|uninstall|status";;
+  *) echo "usage: $0 install-5|install-hunter-15|install-awake|install-agents|install|uninstall|status"; exit 1;;
 esac

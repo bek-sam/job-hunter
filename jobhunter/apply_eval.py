@@ -112,11 +112,11 @@ def main():
             if wo is None and not re.search(r'/job/', r.get('Link') or ''):
                 live = 'badlink'
         if live == 'badlink':
-            notion.update_row(r['id'], notion.props(Notes=('LINK IS NOT A JOB POSTING (careers home) – find the role on the '
-                                                           'company site | ' + (r.get('Notes') or ''))[:1990]))
+            notion.update_row(r['id'], notion.props(Notes=notion.join_notes('LINK IS NOT A JOB POSTING (careers home) – find the role on the '
+                                                           'company site', r.get('Notes'))))
             verdict, why = 'EXCLUDED', 'bad link: not a job posting URL'
         elif live == 'closed':
-            notion.update_row(r['id'], notion.props(Status='Closed', Notes=('CLOSED – eval check | ' + (r.get('Notes') or ''))[:1990]))
+            notion.update_row(r['id'], notion.props(Status='Closed', Notes=notion.join_notes('CLOSED – eval check', r.get('Notes'))))
             verdict, why = 'EXCLUDED', 'closed: posting no longer open (checked before applying)'
         else:
             n += 1

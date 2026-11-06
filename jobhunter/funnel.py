@@ -8,7 +8,7 @@ import argparse, collections, datetime as dt, json, re, sys
 from zoneinfo import ZoneInfo
 import config
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 STAGES = ['To apply', 'Needs you', 'Applied', 'OA', 'Interview', 'Offer', 'Rejected', 'Ghosted', 'Closed']
 
 

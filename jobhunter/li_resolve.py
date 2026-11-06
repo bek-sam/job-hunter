@@ -93,8 +93,8 @@ def update_rows(rows, pause=3.0):
         if info.get('closed') in ('CLOSED', 'SUSPENDED', 'DELETED', 'EXPIRED'):   # LinkedIn: no longer accepting applications
             for r in ids[jid]:
                 try:
-                    notion.update_row(r['id'], notion.props(Status='Closed', Notes=(f"CLOSED – LinkedIn posting no longer listed "
-                                      f"({info['closed'].lower()}, {dt.datetime.now():%b %d}) | " + (r.get('Notes') or ''))[:1990])); n += 1
+                    notion.update_row(r['id'], notion.props(Status='Closed', Notes=notion.join_notes(f"CLOSED – LinkedIn posting no longer listed "
+                                      f"({info['closed'].lower()}, {dt.datetime.now():%b %d})", r.get('Notes')))); n += 1
                 except Exception as e: print('notion update failed', r.get('Company'), str(e)[:80])
             continue
         via = via_of(info)
@@ -105,7 +105,7 @@ def update_rows(rows, pause=3.0):
             upd = {'Apply Via': {'select': {'name': via}},
                    'Apply Link': {'url': info['url'] if info.get('kind') == 'offsite' and info.get('url') else r.get('Link')}}
             if TAG not in notes and 'APPLY: LinkedIn Easy Apply' not in notes:
-                upd.update(notion.props(Notes=(add + notes)[:1990]))
+                upd.update(notion.props(Notes=notion.join_notes(add.rstrip(' |'), notes)))
             try: notion.update_row(r['id'], upd); n += 1
             except Exception as e: print('notion update failed', r.get('Company'), str(e)[:80])
     import collections
@@ -143,8 +143,8 @@ def guest_rows(rows, pause=4.0):
         notes = r.get('Notes') or ''
         if kind == 'closed':   # LinkedIn: "No longer accepting applications"
             try:
-                notion.update_row(r['id'], notion.props(Status='Closed', Notes=(f"CLOSED – LinkedIn: no longer accepting applications "
-                                                                              f"({dt.datetime.now():%b %d}) | " + notes)[:1990])); n += 1
+                notion.update_row(r['id'], notion.props(Status='Closed', Notes=notion.join_notes(f"CLOSED – LinkedIn: no longer accepting applications "
+                                                                              f"({dt.datetime.now():%b %d})", notes))); n += 1
             except Exception as e: print('notion update failed', r.get('Company'), str(e)[:80])
             why['closed'] += 1; time.sleep(pause); continue
         if kind == 'easy':
@@ -157,7 +157,7 @@ def guest_rows(rows, pause=4.0):
         why['easy' if kind == 'easy' else 'external']+= 1
         upd = {'Apply Via': {'select': {'name': via}}}
         if link: upd['Apply Link'] = {'url': link[:1900]}
-        upd.update(notion.props(Notes=(tag + ' | ' + notes)[:1990]))
+        upd.update(notion.props(Notes=notion.join_notes(tag, notes)))
         try: notion.update_row(r['id'], upd); n += 1
         except Exception as e: print('notion update failed', r.get('Company'), str(e)[:80])
         time.sleep(pause)

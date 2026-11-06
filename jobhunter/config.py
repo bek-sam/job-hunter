@@ -29,6 +29,11 @@ try:
 except ImportError:
     pass
 
+# Local time zone for schedules, daily cut-offs and note stamps (IANA name). Default: the owner's (Central).
+from zoneinfo import ZoneInfo
+TZ_NAME = os.environ.get('JOBHUNTER_TZ', 'America/Chicago')
+TZ = ZoneInfo(TZ_NAME)
+
 NOTION_TOKEN = os.environ.get('NOTION_TOKEN', '')
 NOTION_VERSION = '2025-09-03'
 # Your Notion workspace (IDs in .env -- see .env.example). Empty = that feature is off.

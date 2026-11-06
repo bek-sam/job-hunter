@@ -4,7 +4,7 @@ By the end you'll have: a hunter that checks for new-grad / intern SWE postings 
 resume + cover letter for every good match, and a Notion tracker with one row per job. Everything personal stays on
 your Mac.
 
-Works on **macOS** (the scheduler uses launchd). Linux works for the scripts, but you'd need cron instead of step 7.
+Works on **macOS only**: schedules use launchd, sign-in passwords live in the macOS Keychain, notifications use `osascript`, resumes need LibreOffice at `/Applications/LibreOffice.app`, and form filling drives Google Chrome. Linux/Windows would need replacements for all of these. Not on US Central time? Set `JOBHUNTER_TZ` (e.g. `America/New_York`) in `.env`.
 
 ---
 
@@ -63,8 +63,10 @@ and commas. Sections:
 | `packet`, `cover_letter_header`, `resume_v5` | used in the application packet and cover letters |
 
 Rules that keep you safe:
-- **Only true answers.** If you're not sure, **delete the key**: that question is left blank and the job shows up as
-  "Needs you" for you to answer by hand. The tool never guesses.
+- **Your answers win.** Keys you fill are used as-is. Questions your profile doesn't cover get a reasonable answer from
+  the LLM, except credentials (employers, degrees, dates, metrics), legal/consent items, and work authorization
+  (only ever from `authorized_to_work` / `needs_sponsorship`) — those go to "Needs you".
+- Essays that say "don't use AI" are left for you unless you set `"llm": {"ai_essays_ok": true}`.
 - EEO questions (gender, race, veteran, disability) are voluntary — "Decline to self-identify" is a valid answer.
 - `profile.json` is git-ignored: it never goes to GitHub. Don't rename it.
 
@@ -111,7 +113,9 @@ scripts/schedule.sh install-awake        # stop the Mac from idle-sleeping (clos
 scripts/schedule.sh status
 ```
 
-Logs: `data/logs/fast_hunter.log`. Stop everything: `scripts/schedule.sh uninstall`.
+Once form filling works for you (`apply_prep.py --dry`), `scripts/schedule.sh install-5` runs the hunter **and** Apply Prep
+every 5 minutes instead. Logs: `data/logs/fast_hunter.log`, `data/logs/apply_prep.log`. Stop everything (keep-awake
+included): `scripts/schedule.sh uninstall`.
 
 ## 8. Optional extras
 

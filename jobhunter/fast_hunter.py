@@ -12,13 +12,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import config, jd as JD, score, notify
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 PY = sys.executable
 SOFFICE_DIR = '/Applications/LibreOffice.app/Contents/MacOS'
 os.environ['PATH'] = SOFFICE_DIR + os.pathsep + os.environ.get('PATH', '')
 # sources that give only a posting DATE ("Posted Today"), never a time, on the list and on the job page
 DATE_ONLY_SRC = {'workday', 'oracle', 'amazon', 'ibm', 'speedyapply', 'jobright'}
-LAST_OK = config.DATA / 'hunt' / 'last_ok'   # start time of the last successful scan (catch-up + first-sighting continuity)
+LAST_OK_JSON = config.DATA / 'hunt' / 'last_ok.json'   # per hunter script: start of its last successful scan
+LAST_OK = config.DATA / 'hunt' / 'last_ok'   # (old single value, read once for migration) start time of the last successful scan (catch-up + first-sighting continuity)
 EXACT_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'simplify', 'simplify-intern', 'amazon', 'google',
              'apple', 'microsoft', 'tiktok', 'eightfold'}
 
@@ -29,7 +30,30 @@ def db(dry=False):
     return c
 
 
+def load_last_ok():
+    """{script: datetime} of each hunter script's last successful scan (old single last_ok file = default for all)."""
+    try: old = dt.datetime.fromisoformat(LAST_OK.read_text().strip())
+    except Exception: old = None
+    try: d = {k: dt.datetime.fromisoformat(v) for k, v in json.loads(LAST_OK_JSON.read_text()).items()}
+    except Exception: d = {}
+    return {s: d.get(s, old) for s in SCRIPTS}
+
+
+def save_last_ok(per_script, t0):
+    """Advance only the scripts that succeeded: one source that stays broken no longer turns EVERY run (all sources)
+    into a 24-h catch-up that runs long and makes the next 5-min slots skip on the lock (fix Nov 6)."""
+    d = {k: v.isoformat() for k, v in load_last_ok().items() if v}
+    for name, (_, rc) in per_script.items():
+        if rc == 0: d[name] = t0.isoformat()
+    LAST_OK_JSON.write_text(json.dumps(d))
+
+
+SCRIPTS = ('hunt', 'intern', 'bigtech')
+
+
 def run_hunters(hours):
+    """hours = {script: look-back hours} (or one number for all)."""
+    if not isinstance(hours, dict): hours = {s: hours for s in SCRIPTS}
     out = config.DATA / 'hunt'; out.mkdir(exist_ok=True)
     jobs = {'hunt': ['hunt.py', '--out', str(out / 'new_roles.json')],
             'intern': ['intern_hunt.py', '--out', str(out / 'new_interns.json')],
@@ -37,7 +61,7 @@ def run_hunters(hours):
     def go(name):
         args = jobs[name]
         try:
-            r = subprocess.run([PY, args[0], '--hours', f'{hours:.2f}'] + args[1:], cwd=config.PKG, capture_output=True, text=True, timeout=600)
+            r = subprocess.run([PY, args[0], '--hours', f'{hours[name]:.2f}'] + args[1:], cwd=config.PKG, capture_output=True, text=True, timeout=600)
             (out / f'{name}.log').write_text(r.stdout + r.stderr)
             return name, json.load(open(args[2])), r.returncode
         except Exception as e:
@@ -125,18 +149,26 @@ def main():
     if not config.NOTION_TOKEN and not a.dry_run:
         print('NOTION_TOKEN is empty in .env -> running as --dry-run (no Notion writes, no LLM calls)')
         a.dry_run = True
-    fresh_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
+    base_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
     t0 = dt.datetime.now(dt.timezone.utc)
-    # Auto catch-up (Oct 15): if the last SUCCESSFUL run ended longer ago than the normal window (Mac asleep, crash, no
-    # network, a hunter script failed), widen this run's window back to it (+10 min overlap, max MAX_CATCHUP_MIN).
-    try: last_ok = dt.datetime.fromisoformat(LAST_OK.read_text().strip())
-    except Exception: last_ok = None
-    gap_min = (t0 - last_ok).total_seconds() / 60 if last_ok else None
-    catch_up = bool(gap_min and gap_min + 10 > fresh_min)
-    if catch_up:
-        fresh_min = max(fresh_min, min(int(gap_min) + 10, config.MAX_CATCHUP_MIN))
-        print(f'CATCH-UP: last successful run ended {gap_min:.0f} min ago -> window {fresh_min} min')
-    cut = t0 - dt.timedelta(minutes=fresh_min)
+    # Auto catch-up (Oct 15), per hunter script since Nov 6: if a script's last SUCCESSFUL scan is older than the normal
+    # window (Mac asleep, crash, no network, that source failing), widen THAT script's window back to it (+10 min
+    # overlap, max MAX_CATCHUP_MIN). hunt + intern share board fetches, so they share the wider of their two windows.
+    last = load_last_ok()
+    win, cont = {}, {}
+    for s in SCRIPTS:
+        lo = last.get(s)
+        gap = (t0 - lo).total_seconds() / 60 if lo else None
+        cu = bool(gap and gap + 10 > base_min)
+        win[s] = max(base_min, min(int(gap) + 10, config.MAX_CATCHUP_MIN)) if cu else base_min
+        # first sighting = freshness for date-only sources, but only while that script's scans are continuous (no
+        # sleep gap): catch-up runs count too -- every scan since last_ok is accounted for
+        cont[s] = bool(lo and (t0 - lo <= dt.timedelta(minutes=40) or cu))
+        if cu: print(f'CATCH-UP {s}: last successful scan {gap:.0f} min ago -> window {win[s]} min')
+    win['hunt'] = win['intern'] = max(win['hunt'], win['intern'])
+    fresh_min = max(win.values())   # widest window (summary + legacy uses)
+    fmin = lambda r: win.get(r.get('script'), fresh_min)
+    cutf = lambda r: t0 - dt.timedelta(minutes=fmin(r))
     stats = dict(candidates=0, stale=0, unverified=0, blocked=0, low_fit=0, dupes=0, built=0, errors=0)
     why_dropped = []
 
@@ -144,18 +176,13 @@ def main():
         out = config.DATA / 'hunt'
         results = [(n, json.load(open(out / f)), 0) for n, f in (('hunt', 'new_roles.json'), ('intern', 'new_interns.json'), ('bigtech', 'new_bigtech.json'))]
     else:
-        results = run_hunters(fresh_min / 60 + 0.1)
+        results = run_hunters({s: win[s] / 60 + 0.1 for s in SCRIPTS})
     per_script = {n: (len(l), rc) for n, l, rc in results}
     rows = merged(results); stats['candidates'] = len(rows)
     con = db(a.dry_run)
-    # first sighting = freshness for date-only sources, but only while scans are continuous (no sleep gap): a URL we have
-    # never seen, dated today, appeared since the previous run <= 40 min ago
-    # catch-up runs count too: every scan since last_ok is accounted for, so a never-seen URL dated today is new in the gap
-    continuous = bool(last_ok and (t0 - last_ok <= dt.timedelta(minutes=40) or catch_up))
-    retry_cut = (t0 - dt.timedelta(minutes=fresh_min)).isoformat()
-    def unseen(r):   # 'retry' rows (page had no posting time yet) get another look until they are fresh_min old
+    def unseen(r):   # 'retry' rows (page had no posting time yet) get another look until they are window-old
         s = con.execute('select verdict, at from seen where url=?', (r['url'],)).fetchone()
-        return s is None or (s[0] == 'retry' and s[1] >= retry_cut)
+        return s is None or (s[0] == 'retry' and s[1] >= cutf(r).isoformat())
     rows = [r for r in rows if unseen(r)]
 
     # 1) freshness: exact timestamp within the window, or proven on the job page
@@ -168,14 +195,14 @@ def main():
         if not pg.get('text'): pages[u] = JD.fetch(u)
     for r in rows:
         if r['exact']:
-            if utc(r['posted_utc']) >= cut: fresh.append((r, None))
+            if utc(r['posted_utc']) >= cutf(r): fresh.append((r, None))
             else: stats['stale'] += 1
             continue
         j = pages[r['url']]
-        ok = (j.get('exact') and j['posted'] and j['posted'] >= cut) or \
-             (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fresh_min)
+        ok = (j.get('exact') and j['posted'] and j['posted'] >= cutf(r)) or \
+             (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fmin(r))
         lk = label_kind(j.get('posted_label'))
-        if not ok and continuous and r.get('source') in DATE_ONLY_SRC and not j.get('exact') and lk in (None, 'today') \
+        if not ok and cont.get(r.get('script')) and r.get('source') in DATE_ONLY_SRC and not j.get('exact') and lk in (None, 'today') \
                 and r.get('posted_utc') and utc(r['posted_utc']) >= t0 - dt.timedelta(hours=26):
             ok = True; r['first_seen'] = True   # date-only source, new since the last continuous scan
         if ok: fresh.append((r, j))
@@ -229,23 +256,43 @@ def main():
     today = today_counts(a.dry_run)
     finish(built, stats, per_script, why_dropped, today, a)
     print(f"RUN TIME {(dt.datetime.now(dt.timezone.utc) - t0).total_seconds():.0f}s (built {stats['built']})")
-    if not a.dry_run and not a.no_hunt and all(rc == 0 for _, rc in per_script.values()):
-        LAST_OK.write_text(t0.isoformat())   # start of this scan: everything posted before it is covered
+    if not a.dry_run and not a.no_hunt:
+        save_last_ok(per_script, t0)   # per script: start of this scan = everything it saw posted before is covered
     daily_summary(a.dry_run)
     apply_now_daily(a.dry_run)
+    prune_daily(a.dry_run)
+
+
+def prune_daily(dry):
+    """Once a day: trim old logs / seen.db rows / temp downloads (prune.py; submissions.jsonl is never touched)."""
+    flag = config.DATA / 'daily' / f'prune-{dt.datetime.now(CT):%Y-%m-%d}.done'
+    if dry or flag.exists(): return
+    try:
+        import prune; prune.main()
+        flag.parent.mkdir(exist_ok=True); flag.write_text('ok')
+    except Exception as e:
+        print('prune failed:', str(e)[:120])
 
 
 def apply_now_daily(dry):
-    """Once a day after 7 AM CT: close dead postings and push the 10 best live roles waiting on him (apply_now.py)."""
+    """Once a day after 7 AM: close dead postings and push the 10 best live roles waiting on him (apply_now.py).
+    Started in the BACKGROUND (it took up to 15 min while holding the hunter lock -> 3 skipped 5-min slots daily).
+    apply_now.py writes the .done flag itself when it finishes, so a crashed run is started again (at most once an hour)."""
     now = dt.datetime.now(CT)
     flag = config.DATA / 'daily' / f'apply-now-{now:%Y-%m-%d}.done'
+    started = config.DATA / 'daily' / 'apply-now.started'
     if dry or now.hour < 7 or flag.exists(): return
-    flag.parent.mkdir(exist_ok=True); flag.write_text(now.isoformat())
+    if started.exists() and time.time() - started.stat().st_mtime < 3600: return
+    flag.parent.mkdir(exist_ok=True); started.write_text(now.isoformat())
     try:
-        r = subprocess.run([sys.executable, str(Path(__file__).parent / 'apply_now.py')], capture_output=True, text=True, timeout=900)
-        print(r.stdout[-1500:], r.stderr[-500:])
+        (config.DATA / 'logs').mkdir(exist_ok=True)
+        log = open(config.DATA / 'logs' / 'apply_now.log', 'a')
+        awake = ['/usr/bin/caffeinate', '-i'] if os.path.exists('/usr/bin/caffeinate') else []   # don't sleep mid-run
+        subprocess.Popen(awake + [sys.executable, str(Path(__file__).parent / 'apply_now.py'), '--daily-flag', str(flag)],
+                         stdout=log, stderr=subprocess.STDOUT, cwd=str(Path(__file__).parent), start_new_session=True)
+        print('apply_now started in the background (log: data/logs/apply_now.log)')
     except Exception as e:
-        print('apply_now failed:', e)
+        print('apply_now failed to start:', e)
 
 
 def refresh_resume_facts(max_age_h=24):

@@ -6,7 +6,7 @@
 `page` is already open on the job link. `job` = dict(url, company, title, pdf, docx, cover_txt, cover_text, dry).
 Contract for every adapter (hard limits): fill only; stop on the last review page BEFORE the final Submit/Apply;
 leave the tab open; never type passwords, create accounts, solve CAPTCHAs, enter codes, tick consent/legal boxes,
-or invent answers -- unknown questions go to `unknown` and the result is NEEDS YOU.
+or state credentials he doesn't have -- unanswerable questions go to `unknown` and the result is NEEDS YOU.
 """
 import importlib, os, re
 
@@ -36,7 +36,10 @@ def detect(url, html=''):
 # owner, Oct 19: auto-apply ONLY on these systems for now (.env APPLY_ATS_ONLY=greenhouse,ashby). LinkedIn / jobright /
 # generic company pages are still opened, but only to follow them to a Greenhouse/Ashby form; anything else is SKIPPED
 # (row untouched, Link updated to the real site so the next run's focus filter leaves it out).
-ONLY = [x.strip().lower() for x in os.environ.get('APPLY_ATS_ONLY', '').split(',') if x.strip()]
+# Default (unset) = greenhouse,ashby: a new user who turns AUTO_SUBMIT on must not get auto-submit on every system.
+# APPLY_ATS_ONLY=all removes the limit.
+_ONLY = os.environ.get('APPLY_ATS_ONLY', 'greenhouse,ashby').strip().lower()
+ONLY = [] if _ONLY in ('all', '*') else [x.strip() for x in _ONLY.split(',') if x.strip()]
 
 
 def allowed(m):

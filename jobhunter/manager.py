@@ -11,7 +11,7 @@ import argparse, datetime as dt, json, os, re, subprocess, sys, tempfile
 from zoneinfo import ZoneInfo
 import config, funnel
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 PROMPTS = config.PKG / 'prompts'
 REPORTS = config.DATA / 'reports'
 
@@ -115,7 +115,7 @@ def apply_status_updates(rows, updates, dry=False):
         st = u.get('status')
         if amb and st:   # Oct 14: a Figma intern rejection was written to the Full Stack row -> never guess a Status
             note_amb = f"CHECK: email says {st} for '{u.get('position_hint', '')}' but it matches several {u.get('company')} rows"
-            if not dry: notion.update_row(r['id'], notion.props(Notes=(note_amb + ' | ' + (r.get('Notes') or ''))[:1990]))
+            if not dry: notion.update_row(r['id'], notion.props(Notes=notion.join_notes(note_amb, r.get('Notes'))))
             skipped.append(f"{u.get('company')} – {u.get('position_hint', '')}: {st} NOT applied (several matching rows; check by hand)")
             continue
         # never move a row backwards in the funnel (e.g. a late "thanks for applying" after an OA invite)
@@ -123,7 +123,7 @@ def apply_status_updates(rows, updates, dry=False):
             st = None
         note = u.get('note')
         props = notion.props(Status=st, DateApplied=(u.get('date_applied') or None) if u.get('date_applied') and not r.get('Date Applied') else None,
-                             Notes=((note + ' | ' + (r.get('Notes') or ''))[:1990]) if note else None)
+                             Notes=notion.join_notes(note, r.get('Notes')) if note else None)
         if not props:
             continue
         if not dry: notion.update_row(r['id'], props)
@@ -147,7 +147,7 @@ def main():
         print('ERROR:', e); sys.exit(2)
     REPORTS.mkdir(parents=True, exist_ok=True)
     last = sorted(REPORTS.glob('Manager Report — *.md'))
-    ctx = {'now_ct': now.strftime('%a %Y-%m-%d %H:%M CT'), 'sunday': now.weekday() == 6, 'funnel': fun,
+    ctx = {'now_ct': now.strftime('%a %Y-%m-%d %H:%M %Z'), 'sunday': now.weekday() == 6, 'funnel': fun,
            'team_health': funnel.team_health(),
            'last_report': last[-1].read_text()[:1500] if last else None}
     p = prompt_for('manager', ctx)
