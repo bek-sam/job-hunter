@@ -491,6 +491,12 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
     except Exception:
         pass
     if ON('AUTO_CONSENT'): _tick_boxes(scope)
+    from application_state import submission_issues
+    issues = submission_issues(scope)
+    if issues:
+        res.update(status='NEEDS YOU', reason='Not submitted: ' + '; '.join(issues)[:500],
+                   unknown=issues, submission_state='not_submitted')
+        return res
     btn = scope.locator('[data-automation-id="pageFooterNextButton"], [data-automation-id="bottom-navigation-next-button"]')
     if not (_vis(btn) and re.match(button_rx, btn.first.inner_text() or '', re.I)):   # Workday's footer Submit
         # prefer a real "Submit…" button: Greenhouse pages also have a top "Apply" button that only scrolls to the
@@ -507,6 +513,9 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
     try: btn.first.scroll_into_view_if_needed(timeout=3000)
     except Exception: pass
     since = time.time() - 30
+    res['submission_attempted_at'] = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+    res['submission_url'] = page.url
+    res['submission_state'] = 'awaiting_confirmation'
     rejected = []   # Ashby: the submit response itself says "not submitted" + which fields are missing
     def _on_resp(r):
         try:
@@ -528,7 +537,7 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
         _wd_click(btn)
         t = _wait_confirm(page, scope, secs=60)
     if rejected and not CONFIRM.search(t):
-        res.update(status='NEEDS YOU', reason='Ashby refused the form (NOT submitted): ' + '; '.join(rejected[-1])[:300])
+        res.update(status='NEEDS YOU', reason='Ashby refused the form (NOT submitted): ' + '; '.join(rejected[-1])[:300], submission_state='not_submitted')
         return res
     if _security_code(scope) and not CONFIRM.search(t):
         if not ON('AUTO_VERIFY'):
@@ -548,7 +557,7 @@ def submit(page, res, frame=None, button_rx=SUBMIT_RX):
     elif _captcha(page):
         res.update(status='NEEDS YOU', reason='CAPTCHA appeared on Submit (tab open)')
     elif CONFIRM.search(t) or any(CONFIRM.search(_body(f.page if hasattr(f, 'page') else page, 5000) or '') for f in [scope]):
-        res.update(status='SUBMITTED', reason='submitted — confirmation shown')
+        res.update(status='SUBMITTED', reason='submitted — confirmation shown', submission_state='confirmed')
     else:
         err = re.search(r'(this field is required|is required|please (enter|select|complete)[^.\n]{0,60}|error[^.\n]{0,60})', t, re.I)
         res.update(status='NEEDS YOU', reason='clicked Submit ONCE but saw no confirmation — it may have gone through: check email for a confirmation before re-submitting' + (f': {err.group(0)[:80]}' if err else '') + ' (tab open)')

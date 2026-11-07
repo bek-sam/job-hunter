@@ -1,12 +1,88 @@
-"""One-shot LLM calls through headless Claude Code (`claude -p`), kept as small as possible:
-custom system prompt, no tools, no MCP servers, no skills, no project files, no saved session."""
-import json, os, subprocess, tempfile
+"""Single-shot Codex/Claude calls, isolated from project files and tools."""
+import json, os, subprocess, tempfile, shutil
 import config
 
 _EMPTY = tempfile.mkdtemp(prefix='jh_llm_')   # run outside the repo so no CLAUDE.md gets loaded
 
 
 def ask(prompt, system='You are a concise assistant. Answer only with what is asked.', model=None, schema=None, timeout=240, job=None):
+    provider = os.environ.get('LLM_PROVIDER', 'claude').lower()
+    if provider == 'codex':
+        return ask_codex(prompt, system, schema, timeout, job)
+    if provider != 'claude':
+        raise ValueError(f'Unknown LLM_PROVIDER: {provider}')
+    try:
+        return ask_claude(prompt, system, model, schema, timeout, job)
+    except RuntimeError as error:
+        if os.environ.get('CODEX_FALLBACK', '1') != '1' or not any(marker in str(error).lower() for marker in ('usage_limit_reached', 'weekly limit', 'rate_limit', 'rate limit', 'api_error_status":429')):
+            raise
+        return ask_codex(prompt, system, schema, timeout, job)
+
+
+def codex_schema(schema):
+    """Close every object and require nullable optional fields for strict output."""
+    if isinstance(schema, list):
+        return [codex_schema(value) for value in schema]
+    if not isinstance(schema, dict):
+        return schema
+    result = {key: codex_schema(value) for key, value in schema.items()}
+    if schema.get('type') == 'object':
+        required = schema.get('required', [])
+        properties = result.get('properties', {})
+        for key, value in list(properties.items()):
+            if key not in required:
+                properties[key] = {'anyOf': [value, {'type': 'null'}]}
+        result.update(additionalProperties=False, required=list(properties))
+    return result
+
+
+def restore_optional(value, schema):
+    """Restore omitted optionals without dropping explicitly nullable required answers."""
+    if isinstance(value, dict):
+        required = schema.get('required', [])
+        props = schema.get('properties', {})
+        return {key: restore_optional(item, props.get(key, {})) for key, item in value.items()
+                if item is not None or key in required}
+    if isinstance(value, list):
+        return [restore_optional(item, schema.get('items', {})) for item in value]
+    return value
+
+
+def ask_codex(prompt, system, schema, timeout, job, connectors=False, read_only=False, calendar=True):
+    binary = os.environ.get('CODEX_BIN') or shutil.which('codex') or os.path.expanduser('~/.npm-global/bin/codex')
+    with tempfile.TemporaryDirectory(prefix='jh_codex_') as directory:
+        output = os.path.join(directory, 'answer.txt')
+        cmd = [binary, 'exec', '--ignore-user-config', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only', '-C', directory, '-o', output]
+        if connectors:
+            from codex_connectors import config_args
+            cmd += config_args(read_only=read_only, calendar=calendar)
+        else:
+            cmd += ['-c', 'features.apps=false', '-c', 'web_search="disabled"']
+        selected_model = os.environ.get('CODEX_MODEL')
+        if selected_model:
+            cmd += ['--model', selected_model]
+        if schema:
+            schema_path = os.path.join(directory, 'schema.json')
+            with open(schema_path, 'w') as stream:
+                json.dump(codex_schema(schema), stream)
+            cmd += ['--output-schema', schema_path]
+        cmd += ['-']
+        guard = ('Use only the permitted connectors and web tools. No shell commands or local files.' if connectors
+                 else 'Do not use tools, read files, or execute commands.')
+        request = system + '\n\nAnswer the supplied request only. ' + guard + '\n\n' + prompt
+        result = subprocess.run(cmd, input=request, capture_output=True, text=True, timeout=timeout, cwd=directory)
+        if result.returncode:
+            raise RuntimeError(f'codex exec failed: {result.stderr[-500:]}')
+        with open(output) as stream:
+            answer = stream.read().strip()
+        if not answer:
+            raise RuntimeError('codex exec returned an empty answer')
+        parsed = restore_optional(json.loads(answer), schema) if schema else answer
+        log_usage(selected_model or 'codex-default', {}, None, job)
+        return parsed
+
+
+def ask_claude(prompt, system, model, schema, timeout, job):
     cmd = [config.CLAUDE_BIN, '-p', prompt, '--model', model or config.LLM_MODEL, '--output-format', 'json',
            '--system-prompt', system, '--tools', '', '--strict-mcp-config', '--disable-slash-commands',
            '--setting-sources', '', '--no-session-persistence']

@@ -1,6 +1,6 @@
 """Job Manager, local edition (rules: reference/schedules/Job_Manager_daily__coach__team_lead.md).
-Python computes the funnel + team health (0 tokens) and applies all Notion changes; ONE `claude -p` call does the
-Gmail/Calendar/web judgment work with a tight tool allowlist (no send, no delete, no Notion tools).
+Python computes the funnel + team health and applies Notion changes. The selected LLM
+uses Gmail/Calendar/web tools with a tight allowlist (no send, no delete, no Notion tools).
 
   python manager.py                    # normal run
   python manager.py --dry              # build context, print prompt size, no LLM, no writes
@@ -43,8 +43,13 @@ SYSTEM = ("You are an autonomous job-search assistant running unattended. Follow
 
 
 def agent(prompt, tools, schema, model=None, budget_usd=2.0, timeout=900, system=SYSTEM):
-    """llm.ask-compatible call that KEEPS the claude.ai connectors (no --strict-mcp-config) but allows only `tools`.
-    (Suggested future change: give llm.ask `tools=`/`allowed=` params so both paths share one wrapper.)"""
+    """Run the selected provider with only the job's permitted connectors."""
+    if os.environ.get('LLM_PROVIDER', 'claude').lower() == 'codex':
+        import llm
+        from codex_connectors import SYSTEM as CODEX_SYSTEM
+        return llm.ask_codex(prompt, CODEX_SYSTEM + '\n' + system, schema, timeout, schema.get('title', 'agent'),
+                             connectors=True, calendar=any(t.startswith(CAL) for t in tools),
+                             read_only=not any(t.endswith(('create_draft', 'create_event')) for t in tools))
     cwd = tempfile.mkdtemp(prefix='jh_agent_')
     cmd = [config.CLAUDE_BIN, '-p', prompt, '--model', model or config.LLM_MODEL, '--output-format', 'json',
            '--system-prompt', system, '--tools', 'ToolSearch,WebSearch,WebFetch',

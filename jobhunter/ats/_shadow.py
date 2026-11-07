@@ -52,7 +52,7 @@ LABEL_JS = r"""e => {
 }"""
 
 
-def fill(page, job, scope='input, textarea, select'):
+def fill(page, job, scope='input, textarea, select, button[role=combobox], button[aria-haspopup=listbox]'):
     """Returns (done, unknown)."""
     done, unknown = [], []
     locs = page.locator(scope)
@@ -66,7 +66,7 @@ def fill(page, job, scope='input, textarea, select'):
         except Exception:
             continue
         label = d['label']; typ = d['type']
-        if typ in ('hidden', 'submit', 'button', 'image', 'reset'): continue
+        if typ in ('hidden', 'submit', 'button', 'image', 'reset') and d.get('role') != 'combobox' and not loc.get_attribute('aria-haspopup'): continue
         if typ != 'file' and not d['visible']: continue
         if formfill.NEVER.search(label):
             if d['required']: unknown.append(label)
@@ -77,10 +77,16 @@ def fill(page, job, scope='input, textarea, select'):
                 if re.search(r'cover', key, re.I):
                     if job.get('cover_txt'): loc.set_input_files(job['cover_txt']); done.append('Cover letter (file)')
                 elif job.get('pdf') and not resume_done and (re.search(r'resume|cv\b|curriculum', key, re.I) or i == locs.count() - 1):
-                    loc.set_input_files(job['pdf']); done.append('Resume'); resume_done = True
+                    loc.set_input_files(job['pdf'])
+                    from ats.common import upload_ok
+                    if upload_ok(page, loc, job['pdf']): done.append('Resume'); resume_done = True
+                    else: unknown.append('Resume upload not confirmed')
                 continue
             if typ == 'radio':
-                radio_groups.setdefault(label or f'group{i}', []).append((loc, d)); continue
+                group = loc.get_attribute('name') or label or f'group{i}'
+                q = loc.evaluate("e => { let p=e.closest('fieldset,[role=radiogroup]') || e.getRootNode().host?.closest('fieldset,[role=radiogroup]'); return p && (p.querySelector('legend,label,[class*=question]')?.textContent || p.getAttribute('aria-label')) || ''; }")
+                if q: d['question'] = q.strip()
+                radio_groups.setdefault(group, []).append((loc, d)); continue
             if typ == 'checkbox':
                 if formfill.CONSENT.search(label) and d['required']:
                     if formfill.consent_on():   # AUTO_CONSENT=1 (owner, Oct 12): required terms/privacy box only
@@ -101,7 +107,10 @@ def fill(page, job, scope='input, textarea, select'):
             # rule had no matching option (SmartRecruiters words them as sentences): the answer step picks from the real list
             if d['tag'] == 'select':
                 o = formfill.pick(d['options'] or [], opt, val)
-                if o: loc.select_option(label=o); done.append(label)
+                if o:
+                    loc.select_option(label=o)
+                    if loc.evaluate('e => e.selectedOptions[0]?.textContent.trim()') == o: done.append(label)
+                    elif d['required']: unknown.append(label + ' (selection did not persist)')
                 else: ask.append((loc, d))
             elif d.get('role') == 'combobox':
                 o = combobox_pick(page, loc, val, opt)
@@ -111,8 +120,23 @@ def fill(page, job, scope='input, textarea, select'):
                 loc.fill(val); done.append(label)
         except Exception as e:
             if d.get('required'): unknown.append(f'{label} (error: {str(e)[:60]})')
+    for entries in radio_groups.values():
+        if any(loc.is_checked() for loc, d in entries): continue
+        question = next((d.get('question') for loc, d in entries if d.get('question')), '')
+        required = any(d['required'] for loc, d in entries)
+        if not question:
+            if required: unknown.append('Unlabelled required radio group')
+            continue
+        val, opt = formfill.rule_for(question)
+        choice = formfill.choose(question, [d['label'] for loc, d in entries], opt, val)
+        if choice:
+            loc = next(loc for loc, d in entries if d['label'] == choice)
+            if formfill.tick(page, loc): done.append(question)
+            elif required: unknown.append(question + ' (selection did not persist)')
+        elif required: unknown.append(question)
     d2, u2 = _ask(page, ask, job)
-    return done + d2, unknown + u2
+    from application_state import missing
+    return done + d2, list(dict.fromkeys(unknown + u2 + missing(page)))
 
 
 def _ask(page, ask, job):
@@ -169,8 +193,6 @@ def autocomplete_pick(page, loc, text, opt_rx=None, wait=1200):
     o = formfill.pick(texts, opt_rx, text) if texts else None
     if o:
         opts.nth(texts.index(o)).click(); return o
-    if texts:
-        opts.first.click(); return texts[0]
     return None
 
 
@@ -190,7 +212,11 @@ def combobox_pick(page, loc, val, opt_rx):
         texts = opts.evaluate_all(OPT_TEXT_JS) if opts.count() else []
         o = formfill.pick(texts, opt_rx, val) if texts else None
     if o is not None:
-        opts.nth(texts.index(o)).click(); page.wait_for_timeout(500); return o
+        opts.nth(texts.index(o)).click(); page.wait_for_timeout(500)
+        value = loc.evaluate("e => e.value || e.getAttribute('value') || e.textContent || ''")
+        root_value = loc.evaluate("e => e.getRootNode().host?.value || e.getRootNode().host?.getAttribute('value') || ''")
+        if o.lower() in str(value).lower() or o.lower() in str(root_value).lower(): return o
+        return None
     try:
         loc.fill(''); loc.press('Escape')
     except Exception:

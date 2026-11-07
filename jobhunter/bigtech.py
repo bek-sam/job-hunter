@@ -300,6 +300,8 @@ if __name__ == '__main__':
         if k not in seen: seen.add(k); res.append(r)
     res.sort(key=lambda r: (r['kind'] != 'newgrad', 'ABIWD'.index(r['tier']), not r['exact'], -hunt.iso(r['posted_utc'].replace(' ', 'T') + ':00+00:00')))
     json.dump(res, open(a.out, 'w'), indent=1)
+    import source_health
+    source_health.write(a.out, errs, sources=len(srcs), candidates=len(res))
     print('per source:', {k: v for k, v in stat.items() if not k.startswith(('greenhouse', 'ashby', 'lever', 'smartrecruiters', 'workday'))})
     print(f'sources={len(srcs)} ok={len(srcs) - len(errs)} errors={len(errs)}', {k: v for k, v in errs.items()})
     print(f'candidates={len(res)} (newgrad {sum(r["kind"]=="newgrad" for r in res)}, intern {sum(r["kind"]=="intern" for r in res)}) in {time.time()-t0:.0f}s')

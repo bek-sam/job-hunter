@@ -200,9 +200,9 @@ LABEL_JS = r"""
   const out = []; let n = 0; const radios = {};
   // data-jh-root (LinkedIn Easy Apply, Oct 26): read only the dialog, not the job page behind it (follow/alert boxes)
   const root = document.querySelector('[data-jh-root]') || document;
-  for (const el of root.querySelectorAll('input, textarea, select')) {
+  for (const el of root.querySelectorAll('input, textarea, select, button[role=combobox], button[aria-haspopup=listbox]')) {
     const type = (el.type || el.tagName).toLowerCase();
-    if (['hidden', 'submit', 'button', 'image', 'reset'].includes(type)) continue;
+    if (['hidden', 'submit', 'button', 'image', 'reset'].includes(type) && !el.matches('[role=combobox],button[aria-haspopup=listbox]')) continue;
     if (type === 'search' && el.getAttribute('role') !== 'combobox') continue;   // TikTok ud__select = search-type combobox
     if (type !== 'file' && !vis(el)) continue;
     if (el.tabIndex === -1 && el.tagName === 'INPUT' && type !== 'file' && type !== 'radio' && type !== 'checkbox' && el.getAttribute('role') !== 'combobox') continue;  // react-select shadow input
@@ -252,7 +252,7 @@ LABEL_JS = r"""
       continue;
     }
     el.setAttribute('data-jh', String(++n));
-    const d = {n, kind: el.getAttribute('role') === 'combobox' ? 'combobox' : el.tagName.toLowerCase(), type,
+    const d = {n, kind: el.matches('[role=combobox],button[aria-haspopup=listbox]') ? 'combobox' : el.tagName.toLowerCase(), type,
                label: labelOf(el), required: !!req, value: el.value || '', id: el.id || '', name: el.name || '',
                maxlength: el.maxLength > 0 ? el.maxLength : null};
     if (d.kind === 'combobox') { const c = el.closest('[class*="select__control"]') || el.closest('[class*="-control"]') || el.closest('[class*="__control"]')
@@ -729,14 +729,9 @@ def numeric(val, label):
 
 
 def form_frame(page):
-    """Greenhouse forms are often embedded in an iframe on the company site."""
-    for fr in page.frames:
-        try:
-            if fr.locator('input[type="file"], input[name*="first"], input[id*="first_name"]').count(): return fr
-        except Exception:
-            pass
-    return page.main_frame
-
+    """Choose the application/login frame, excluding chat and challenge widgets."""
+    from application_state import form_frame as choose_frame
+    return choose_frame(page)
 
 
 
@@ -745,6 +740,15 @@ def fill(frame, job):
     Rules first (0 tokens); then ONE batched LLM call answers the remaining questions truthfully (answers.py);
     whatever it cannot answer from his facts stays in `unknown` -> NEEDS YOU."""
     pending = []
+    try:
+        shadow = frame.evaluate("() => [...document.querySelectorAll('*')].some(e => e.shadowRoot && e.shadowRoot.querySelector('input,select,textarea,[role=combobox]'))")
+    except Exception:
+        shadow = False
+    if shadow:
+        from ats import _shadow
+        done, unknown = _shadow.fill(frame, job)
+        unknown += still_empty(frame)
+        return list(dict.fromkeys(done)), list(dict.fromkeys(unknown))
     try:
         import apply_prep
         APPLIED_HERE[0] = bool(job.get('company')) and apply_prep.company_submitted(job.get('company'))
@@ -792,7 +796,8 @@ def still_empty(frame):
     try:
         fields = frame.evaluate(LABEL_JS)
     except Exception:
-        return out
+        from application_state import missing
+        return list(dict.fromkeys(['Form field extraction failed'] + missing(frame)))
     for d in fields:
         if not d.get('required') or d.get('type') == 'file': continue
         lab = (d.get('label') or '').strip()
@@ -807,4 +812,6 @@ def still_empty(frame):
         elif not (d.get('value') or '').strip():
             out.append(lab)
     seen = set()
+    from application_state import missing
+    out += missing(frame)
     return [x for x in out if not (x in seen or seen.add(x))]

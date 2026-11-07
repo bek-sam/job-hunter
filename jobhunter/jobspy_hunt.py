@@ -3,7 +3,7 @@ Adds sources the other hunters lack: Indeed, ZipRecruiter, Google Jobs (guest on
 a blocked site is just skipped). Same output format as bigtech.py; fast_hunter applies the normal filters after.
   .venv/bin/python jobhunter/jobspy_hunt.py --hours 1 --out new_jobspy.json"""
 import argparse, datetime as dt, json, math, os
-import bigtech
+import bigtech, source_health
 
 SITES = os.environ.get('JOBSPY_SITES', 'indeed,zip_recruiter,google').split(',')
 SEARCHES = [s.strip() for s in os.environ.get('JOBSPY_SEARCHES', 'software engineer new grad|entry level software engineer|software engineer intern 2027').split('|')]
@@ -15,15 +15,17 @@ def main():
     try:
         from jobspy import scrape_jobs
     except ImportError:
-        print('python-jobspy not installed: .venv/bin/pip install python-jobspy'); json.dump([], open(a.out, 'w')); return
-    hours = max(1, math.ceil(a.hours)); rows, seen = [], set()
+        print('python-jobspy not installed: .venv/bin/pip install python-jobspy')
+        json.dump([], open(a.out, 'w')); source_health.write(a.out, ['python-jobspy missing']); raise SystemExit(2)
+    hours = max(1, math.ceil(a.hours)); rows, seen, failures = [], set(), []
     for q in SEARCHES:
         for site in SITES:
             try:
                 df = scrape_jobs(site_name=[site], search_term=q, google_search_term=f'{q} jobs posted in the last day',
                                  location='United States', results_wanted=a.results, hours_old=hours, country_indeed='USA')
             except Exception as e:
-                print(f'{site}: {type(e).__name__} {str(e)[:80]} (skipped)'); continue
+                failures.append(f'{site}: {type(e).__name__}: {str(e)[:80]}')
+                print(failures[-1] + ' (skipped)'); continue
             for _, j in df.iterrows():
                 co, title = str(j.get('company') or ''), str(j.get('title') or '')
                 url = j.get('job_url_direct') if isinstance(j.get('job_url_direct'), str) and j.get('job_url_direct') else j.get('job_url')
@@ -40,6 +42,7 @@ def main():
                 rows.append(r)
             print(f'{site} "{q}": {len(df)} found')
     json.dump(rows, open(a.out, 'w'), indent=1)
+    source_health.write(a.out, failures, candidates=len(rows))
     for r in rows: print(f"[{r['kind']}/{r['tier']}] {r['posted_utc']} | {r['source']} | {r['company']} | {r['title']} | {r['url']}")
 
 

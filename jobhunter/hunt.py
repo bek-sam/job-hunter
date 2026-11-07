@@ -273,7 +273,8 @@ if __name__ == '__main__':
     res.sort(key=lambda r: (r['tier'], r['source'] in ('jobright', 'speedyapply', 'simplify'), r['posted_utc']), reverse=False)
     res.sort(key=lambda r: ('ABD'.index(r['tier']), r['source'] in ('jobright', 'speedyapply'), -iso(r['posted_utc'].replace(' ', 'T') + ':00+00:00')))
     json.dump(res, open(a.out, 'w'), indent=1)
-    import collections
+    import collections, source_health
+    source_health.write(a.out, errs, boards=len(bl), candidates=len(res), skipped_dead=len(_dead))
     kinds = collections.Counter(e.split(': ', 1)[1] for e in errs)
     print(f'boards={len(bl)} errors={len(errs)} {dict(kinds)} skipped_dead={len(_dead)} candidates={len(res)} in {time.time()-t0:.0f}s')
     for r in res: print(f"[{r['tier']}] {r['posted_utc']} | {r['source']} | {r['company']} | {r['title']} | {r['location'][:40]} | {r['url']}")

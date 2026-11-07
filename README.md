@@ -31,6 +31,20 @@ scripts/setup.sh                                          # installs everything,
 
 ## Commands
 
+Set `LLM_PROVIDER=codex` in `.env` to use `codex exec` with your existing
+Codex login (`codex login`). Set it to `claude` to use Claude with Codex
+fallback on usage limits (`CODEX_FALLBACK=0` disables fallback).
+`CODEX_BIN` and `CODEX_MODEL` optionally override the executable and model.
+Calls run in a temporary directory with a read-only sandbox and without user
+configuration. Codex schemas are normalized for strict structured output.
+Manager and Outreach use your connected Gmail account for search/read and
+unsent draft creation, plus live web research. Manager can also read Calendar
+and create private OA/interview events without attendees. The scheduled
+connector configuration blocks all other apps and unlisted tools, including
+email sending/forwarding/deletion and event updates/deletion. Existing Codex
+account authentication is reused; no Google credentials are stored here.
+If a connector disconnects, its failed checks are reported explicitly.
+
 ```bash
 .venv/bin/python jobhunter/fast_hunter.py --dry-run --minutes 180   # test: no writes, no LLM
 .venv/bin/python jobhunter/test_resumes.py                          # resume regression check (~50 s)
@@ -38,6 +52,13 @@ scripts/setup.sh                                          # installs everything,
 scripts/schedule.sh install-hunter-15                               # run the hunter every 15 min (launchd)
 scripts/schedule.sh install-awake                                   # keep the Mac from idle-sleeping
 ```
+
+Auto-apply checks the eligible queue every five minutes and processes up to 15
+rows per run. Jobs are ordered by **Date Posted, newest first**, then exact
+Notion creation time. Creation time is used when the posting date is missing.
+Fresh jobs, backlog jobs, and `FILL NOW` rows share this ordering; title and fit
+score do not override recency. Retry cooldowns and eligibility checks still apply.
+An already-running batch finishes its current order; subsequent runs use the new order.
 
 ## Layout
 

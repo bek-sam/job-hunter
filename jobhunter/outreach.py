@@ -1,6 +1,6 @@
 """Recruiter Outreach & Follow-ups, local edition (rules: reference/schedules/Recruiter_Outreach__Follow-ups.md).
-Python picks the rows (funnel.py, 0 tokens) and applies every Notion/queue/CSV change; ONE `claude -p` call finds
-recruiters, verifies public emails (WebFetch), checks Gmail and creates Gmail DRAFTS (send/forward/reply are blocked).
+Python picks the rows and applies Notion/queue/CSV changes. The selected LLM finds
+recruiters, verifies public emails, checks Gmail and creates unsent drafts only.
 
   python outreach.py                    # normal run
   python outreach.py --dry              # build context, print prompt size, no LLM, no writes

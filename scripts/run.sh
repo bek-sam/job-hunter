@@ -5,4 +5,4 @@ cd "$(dirname "$0")/../jobhunter" || exit 1
 mkdir -p ../data/logs
 job=$1; shift
 # caffeinate -i: the Mac must not idle-sleep mid-run (a paused run holds the lock and blocks the next 15-min slots)
-exec /usr/bin/caffeinate -i ../.venv/bin/python "$job.py" "$@" >> "../data/logs/$job.log" 2>&1
+exec /usr/bin/caffeinate -i ../.venv/bin/python -u "$job.py" "$@" >> "../data/logs/$job.log" 2>&1

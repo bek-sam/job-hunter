@@ -18,6 +18,15 @@ def small_ats(url):
 
 
 def run(ctx, page, job):
+    import ats
+    # This function may be reached through an external Apply redirect. Route the
+    # destination before touching its controls (even if a file input already exists).
+    target = ats.detect(page.url)
+    if not target.__name__.endswith('.generic'):
+        if not ats.allowed(target): return ats.skipped(target, page)
+        res = target.run(ctx, page, job)
+        res.setdefault('ats', target.__name__.split('.')[-1])
+        return res
     u = page.url.split('?')[0].rstrip('/')
     if re.search(r'\.breezy\.hr/p/[^/]+$', u):   # Breezy's Apply button opens a profile sign-in; /apply is the plain form
         page.goto(u + '/apply', wait_until='domcontentloaded', timeout=60000); page.wait_for_timeout(3000)
@@ -67,7 +76,7 @@ def run(ctx, page, job):
             m = ats.detect(page.url, html)
             if not m.__name__.endswith('.generic'):
                 if not ats.allowed(m): return ats.skipped(m, page)
-                res = m.run(ctx, page, job); res['reason'] = f"via {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
+                res = m.run(ctx, page, job); res.setdefault('ats', m.__name__.split('.')[-1]); res['reason'] = f"via {m.__name__.split('.')[-1]}: {res.get('reason', '')}"
                 return res
     import ats, sys
     if re.search(SMALL['breezy'], formfill.form_frame(page).url or page.url, re.I):   # Oct 22: labels misread -> wrong answers

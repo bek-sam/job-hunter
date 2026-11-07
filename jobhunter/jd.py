@@ -12,6 +12,33 @@ def _get(url, timeout=25, accept='*/*'):
         return f.read().decode('utf-8', 'replace')
 
 
+def posting_identity(html):
+    """Read the publisher's JobPosting identity; never infer an employer from a UUID."""
+    def walk(value):
+        if isinstance(value, list):
+            for item in value: yield from walk(item)
+        elif isinstance(value, dict):
+            if value.get('@type') == 'JobPosting' or 'JobPosting' in (value.get('@type') or []):
+                yield value
+            for item in value.values():
+                if isinstance(item, (dict, list)): yield from walk(item)
+    for raw in re.findall(r'<script[^>]*type=[\'"]application/ld\+json[\'"][^>]*>(.*?)</script>', html or '', re.I | re.S):
+        try: objects = list(walk(json.loads(raw)))
+        except (ValueError, TypeError): continue
+        for job in objects:
+            org = job.get('hiringOrganization') or {}
+            if isinstance(org, list): org = org[0] if org else {}
+            name = org.get('name') if isinstance(org, dict) else None
+            if name:
+                return {'company': H.unescape(name).strip(), 'title': job.get('title'), 'url': job.get('url')}
+    return {}
+
+
+def employer(url):
+    try: return posting_identity(_get(url)).get('company')
+    except Exception: return None
+
+
 def text_of(h):
     h = re.sub(r'(?is)<(script|style).*?</\1>', ' ', h or '')
     h = re.sub(r'(?i)<br\s*/?>|</(p|li|div|h\d|tr)>', '\n', h)

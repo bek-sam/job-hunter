@@ -1,0 +1,11 @@
+<!doctype html><title>SmartRecruiters shadow wizard regression</title>
+<div id="stage"></div>
+<script>
+function stage(n) {
+ document.querySelector('#stage').innerHTML='<h1>'+ (n===1?'Personal information':'Preliminary questions')+'</h1><spl-test id="field" required label="'+(n===1?'First name':'Are you legally authorized to work?')+'"></spl-test><button type="button" id="advance">'+(n<3?'Next':'Submit')+'</button>';
+ let host=document.querySelector('#field'), root=host.attachShadow({mode:'open'});
+ root.innerHTML=n===1?'<input required aria-label="First name">': '<label>Are you legally authorized to work? *</label><select required><option value="">Select</option><option>Yes</option><option>No</option></select>';
+ document.querySelector('#advance').onclick=()=>{if(n<3)stage(n+1);else window.submitted=true};
+}
+stage(1);
+</script>

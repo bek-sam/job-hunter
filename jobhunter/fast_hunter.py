@@ -41,7 +41,13 @@ def run_hunters(hours):
         try:
             r = subprocess.run([PY, args[0], '--hours', f'{hours:.2f}'] + args[1:], cwd=config.PKG, capture_output=True, text=True, timeout=600)
             (out / f'{name}.log').write_text(r.stdout + r.stderr)
-            return name, json.load(open(args[2])), r.returncode
+            import source_health
+            health = source_health.read(args[2])
+            code = r.returncode
+            if health and not health['complete']:
+                print(f'{name}: partial coverage; {len(health["failures"])} source failures (details in {args[2]}.health.json)', flush=True)
+                code = code or 3
+            return name, json.load(open(args[2])), code
         except Exception as e:
             return name, [], f'failed: {e}'
     first = go('hunt')   # Oct 14: hunt.py first; intern_hunt.py then reuses its board fetches (no double Workday load)
@@ -151,6 +157,10 @@ def main():
         print('NOTION_TOKEN is empty in .env -> running as --dry-run (no Notion writes, no LLM calls)')
         a.dry_run = True
     fresh_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
+    recovery = config.DATA / 'recovery_since.txt'
+    if recovery.exists():
+        recovery_since = dt.datetime.fromisoformat(recovery.read_text().strip())
+        fresh_min = max(fresh_min, int((dt.datetime.now(dt.timezone.utc) - recovery_since).total_seconds() / 60) + 10)
     t0 = dt.datetime.now(dt.timezone.utc)
     # Auto catch-up (Oct 15): if the last SUCCESSFUL run ended longer ago than the normal window (Mac asleep, crash, no
     # network, a hunter script failed), widen this run's window back to it (+10 min overlap, max MAX_CATCHUP_MIN).
@@ -172,6 +182,10 @@ def main():
         results = run_hunters(fresh_min / 60 + 0.1)
     per_script = {n: (len(l), rc) for n, l, rc in results}
     rows = merged(results); stats['candidates'] = len(rows)
+    # Process and verify timestamps in recency order. If a catch-up has more
+    # job pages than one run can safely inspect, leave the rest unseen for the
+    # next scheduled pass instead of spending the whole cycle on older rows.
+    rows.sort(key=lambda r: utc(r['posted_utc']), reverse=True)
     con = db(a.dry_run)
     # first sighting = freshness for date-only sources, but only while scans are continuous (no sleep gap): a URL we have
     # never seen, dated today, appeared since the previous run <= 40 min ago
@@ -187,15 +201,33 @@ def main():
     fresh = []
     # job pages are fetched in parallel (Oct 14: LinkedIn now yields ~400 cards per run; one-by-one took minutes)
     need = [r for r in rows if not r['exact']]
-    with cf.ThreadPoolExecutor(int(os.environ.get('JD_WORKERS', '8'))) as ex:
-        pages = dict(zip([r['url'] for r in need], ex.map(lambda r: JD.fetch(r['url'], render=False), need)))
-    for u, pg in pages.items():   # pages that need a real browser: one at a time (one headless Chromium per fetch)
-        if not pg.get('text'): pages[u] = JD.fetch(u)
+    workers = max(1, int(os.environ.get('JD_WORKERS', '8')))
+    pages = {}
+    freshness_deadline = time.monotonic() + float(os.environ.get('HUNTER_FRESHNESS_SLICE_MIN', '4')) * 60
+    remaining = False
+    for start in range(0, len(need), workers):
+        if time.monotonic() >= freshness_deadline:
+            remaining = True
+            print('REFRESH DUE: more recent job-page checks are queued for the next scheduled run', flush=True)
+            break
+        batch = need[start:start + workers]
+        with cf.ThreadPoolExecutor(workers) as ex:
+            pages.update((r['url'], pg) for r, pg in zip(batch, ex.map(lambda r: JD.fetch(r['url'], render=False), batch)))
+    for r in need:   # pages that need a real browser: one at a time (one headless Chromium per fetch)
+        if r['url'] not in pages or pages[r['url']].get('text'):
+            continue
+        if time.monotonic() >= freshness_deadline:
+            remaining = True
+            print('REFRESH DUE: browser freshness checks are queued for the next scheduled run', flush=True)
+            break
+        pages[r['url']] = JD.fetch(r['url'])
     for r in rows:
         if r['exact']:
             if utc(r['posted_utc']) >= cut: fresh.append((r, None))
             else: stats['stale'] += 1
             continue
+        if r['url'] not in pages:
+            continue  # deferred, not marked stale; it will be reconsidered on the next pass
         j = pages[r['url']]
         ok = (j.get('exact') and j['posted'] and j['posted'] >= cut) or \
              (j.get('posted_label') and (minutes_ago(j['posted_label']) or 9999) <= fresh_min)
@@ -215,9 +247,24 @@ def main():
         try: links, pairs, per_co = notion_index()
         except Exception as e: print('Notion dedupe failed:', e)
 
+    # New postings must not wait behind source/tier order during a large recovery.
+    fresh.sort(key=lambda item: (item[1].get('posted') if item[1] and item[1].get('posted')
+                               else utc(item[0]['posted_utc'])), reverse=True)
     built, report = [], []
+    refresh_at = time.monotonic() + float(os.environ.get('HUNTER_BUILD_SLICE_MIN', '10')) * 60
     for r, j in fresh:
+        if time.monotonic() >= refresh_at:
+            remaining = True
+            # Keep the original recovery boundary. A later scan retries unfinished
+            # candidates, with the newest postings now at the front. This is not a daily cap.
+            if not a.dry_run and not recovery.exists():
+                recovery.write_text((last_ok or cut).isoformat())
+            print('REFRESH DUE: unfinished catch-up retained; next scheduled run fetches new postings', flush=True)
+            break
         try:
+            if re.fullmatch(r'[0-9a-fA-F-]{36}', r.get('company') or ''):
+                public_name = JD.employer(r['url'])
+                if public_name: r['company'] = public_name
             key = (norm(r['company'])[:12], norm(r['title']))
             if norm(r['url']) in links or seen_pair(key, pairs):
                 stats['dupes'] += 1; continue
@@ -270,8 +317,9 @@ def main():
     today = today_counts(a.dry_run)
     finish(built, stats, per_script, why_dropped, today, a)
     print(f"RUN TIME {(dt.datetime.now(dt.timezone.utc) - t0).total_seconds():.0f}s (built {stats['built']})")
-    if not a.dry_run and not a.no_hunt and all(rc == 0 for _, rc in per_script.values()):
+    if not a.dry_run and not a.no_hunt and not remaining and stats['errors'] == 0 and all(rc == 0 for _, rc in per_script.values()):
         LAST_OK.write_text(t0.isoformat())   # start of this scan: everything posted before it is covered
+        recovery.unlink(missing_ok=True)
     daily_summary(a.dry_run)
     apply_now_daily(a.dry_run)
 

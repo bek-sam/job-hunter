@@ -1,8 +1,8 @@
 """Job Apply Prep, local edition (Playwright, 0 LLM tokens). Same rules as the cloud task
 (reference/schedules/Job_Apply_Prep*.md): fill forms in the apply Chrome window so he only reviews and clicks Submit.
 
-Picks Notion rows: Status "To apply", Notes contain FAST and not FILLED, created in the last 48h (newest, highest fit
-first) + any row whose Notes contain "FILL NOW". Each link is routed to an ATS adapter in jobhunter/ats/
+Picks eligible Notion rows from fresh FAST jobs, the configured backlog, and FILL NOW.
+All are sorted by Date Posted newest first, then exact creation time (also the fallback when posting date is missing). Each link is routed to an ATS adapter in jobhunter/ats/
 (Workday, LinkedIn, Greenhouse, Lever, Ashby, SmartRecruiters, iCIMS, Oracle, Eightfold, Taleo, Jobvite, Workable,
 SuccessFactors, generic). Adapters stop on the review page BEFORE the final Submit and leave the tab open.
 
@@ -21,8 +21,36 @@ CT = ZoneInfo('America/Chicago')
 FILES = config.DATA / 'apply_files'; FILES.mkdir(exist_ok=True)
 
 
-ENTRY_TITLE = re.compile(r'new grad|graduate|intern|co-?op|entry|junior|\bjr\b|associate|early career|university|campus|202[6-8]|'
-                         r'\b(i|1)\b(?!\w)|apprentice|fellow|rotational|development program|leadership program', re.I)
+def newest_first(row):
+    """Posting recency first; exact Notion creation time breaks same-day ties."""
+    def stamp(value):
+        try:
+            parsed = dt.datetime.fromisoformat((value or '').replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            return parsed.timestamp()
+        except (ValueError, TypeError):
+            return None
+    created = stamp(row.get('created'))
+    posted = stamp(row.get('Date Posted'))
+    return (posted if posted is not None else (created or 0), created or 0, row.get('id') or '')
+
+
+def unconfirmed_jobs():
+    pending = set()
+    try:
+        for line in (config.DATA / 'apply_results.jsonl').read_text().splitlines():
+            try: row = json.loads(line)
+            except ValueError: continue
+            pid = row.get('id')
+            if not pid: continue
+            if row.get('status') == 'SUBMITTED' or row.get('submission_state') in ('confirmed', 'not_submitted'):
+                pending.discard(pid)
+            elif row.get('submission_state') == 'awaiting_confirmation' or 'no confirmation' in (row.get('reason') or ''):
+                pending.add(pid)
+    except FileNotFoundError:
+        pass
+    return pending
 
 
 def rows_to_fill():
@@ -32,11 +60,7 @@ def rows_to_fill():
                                  {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
                                  {'timestamp': 'created_time', 'created_time': {'on_or_after': since}}]})
     now = notion.query({'property': 'Notes', 'rich_text': {'contains': 'FILL NOW'}})
-    fit = lambda r: int((re.search(r'fit (\d+)', r.get('Notes') or '') or [0, 0])[1])
-    # Oct 23: entry-level titles get ~4x the OA/interview rate (2.9% vs 0.7% of Sep-Oct 18 applications) -> they go first
-    entry = lambda r: bool(ENTRY_TITLE.search(r.get('Position') or '')) or r.get('Type') in ('New Grad', 'Internship')
-    fast.sort(key=lambda r: (entry(r), r['created'][:13], fit(r)), reverse=True)
-    # Oct 29: rows older than 48 h were never picked again (1,364 of 1,427 open rows) -> after the fresh rows, newest first
+    # Include the backlog in one queue; posting recency determines order across all sources.
     days = float(os.environ.get('BACKLOG_DAYS', '14'))
     if days > 2:
         old_since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
@@ -44,9 +68,9 @@ def rows_to_fill():
                                         {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
                                         {'timestamp': 'created_time', 'created_time': {'on_or_after': old_since}},
                                         {'timestamp': 'created_time', 'created_time': {'before': since}}]})
-        backlog.sort(key=lambda r: (entry(r), r['created'][:10], fit(r)), reverse=True)
         fast += backlog
     done_states = {'Applied', 'Closed', 'Rejected', 'OA', 'Interview', 'Offer', 'Ghosted'}
+    pending_submit = unconfirmed_jobs()
     tried = attempts()
     cutoff = time.time() - RETRY_HOURS * 3600
     fails = recent_fails()
@@ -54,16 +78,16 @@ def rows_to_fill():
     # owner, Oct 12: automate only Greenhouse / Ashby / Workday (+ LinkedIn/jobright rows, which often lead there);
     # every other site is left for him / Claude in the browser instead of burning runs on it
     focus = re.compile(os.environ.get('APPLY_FOCUS', r'greenhouse\.io|gh_jid=|ashbyhq\.com|myworkdayjobs\.com|myworkdaysite\.com|linkedin\.com/jobs|jobright\.ai'), re.I)
-    # fresh FAST rows first: Oct 12 the 8 slots went to the same failing FILL NOW rows every hour and new rows waited
+    # Filter and deduplicate before sorting FAST, backlog and FILL NOW rows together.
     for r in fast + now:
-        if r['id'] in seen or r.get('Status') in done_states: continue
+        if r['id'] in seen or r['id'] in pending_submit or r.get('Status') in done_states: continue
         if not focus.search(r.get('Link') or ''): continue
         if ats.ONLY and still_skipped(r.get('Notes'), r.get('Link')): continue   # already found to apply elsewhere
         if ats.ONLY and not via_allowed(r): continue   # li_resolve found it applies on another system
         if tried.get(r['id'], 0) > cutoff: continue          # back off: tried within the last RETRY_HOURS
         if fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600: continue   # keeps failing: 2x/day
         seen.add(r['id']); out.append(r)
-    return out
+    return sorted(out, key=newest_first, reverse=True)
 
 
 def still_skipped(notes, link=''):
@@ -185,62 +209,36 @@ def company_recent(company, role=''):
     return max(hits) if config.PER_COMPANY_MAX and len(hits) >= config.PER_COMPANY_MAX else None
 
 
+def lookup_confirmation(r, since=None, historical=False):
+    import auth, manager, confirmation
+    if not r.get('Position') and not confirmation.requisition(r.get('Link') or r.get('Apply Link')):
+        return None
+    try:
+        out = manager.agent(confirmation.prompt(r, since, historical), auth._GMAIL_TOOLS + ['ToolSearch'],
+                            dict(confirmation.SCHEMA, title='confirm'), model='haiku', budget_usd=0.06, timeout=180,
+                            system='Read-only Gmail lookup. Never send, draft, delete or change anything. JSON only.')
+        if confirmation.matched(out, r, since):
+            return f"confirmed by email {out['message_id']}: {(out.get('subject') or '')[:80]}"
+    except Exception as error:
+        print('confirmation lookup failed:', str(error)[:120], flush=True)
+    return None
+
+
 def emailed_confirmation(r):
-    """Rows older than 48 h may have been submitted by hand (cloud Apply Prep left them 'FILLED – click Submit').
-    One cheap read-only Gmail lookup: is there already an application confirmation for this company + role?"""
+    """Check an old job for a prior exact-requisition application before submitting."""
     try:
         created = dt.datetime.fromisoformat((r.get('created') or '').replace('Z', '+00:00'))
         if created > dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48): return None
-    except Exception:
+    except (ValueError, TypeError):
         pass
-    company, role = (r.get('Company') or '').split('(')[0].strip(), r.get('Position') or ''
-    if not company: return None
-    import auth, manager
-    try:
-        out = manager.agent(
-            f"Use search_threads with query: newer_than:60d \"{company}\" (\"thank you for applying\" OR \"thanks for applying\" OR "
-            f"\"application received\" OR \"received your application\" OR \"application has been received\"). "
-            f"found=true if ANY of the results is an application confirmation from {company} (any role; if it names a role, put "
-            f"it in subject). We are about to apply for \"{role}\". same_role=true only if a confirmation is for this exact job title "
-            f"(ignore only a location suffix; a different team, specialty or level in the title is a DIFFERENT job), false if every "
-            f"confirmation names a different job, null if none names a job.",
-            auth._GMAIL_TOOLS + ['ToolSearch'], dict(_CONFIRM_SCHEMA, title='confirm'), model='haiku', budget_usd=0.06, timeout=180,
-            system='Read-only Gmail lookup. Load Gmail tools with ToolSearch (select:<names>). Never send, draft or delete. '
-                   'Finish with only the JSON object.')
-        # Oct 20: one confirmation per company blocked every other role there (tonight's own Anthropic submissions
-        # blocked 2 more Anthropic roles) -> only the same role, or a role-less email we can't explain by our own log
-        own = company_submitted(company)
-        subj = re.sub(r'\W+', ' ', (out.get('subject') or '').lower())
-        mine = [x for x in own_roles(company) if x and x in subj and x != re.sub(r'\W+', ' ', role.lower()).strip()]
-        if mine and not re.sub(r'\W+', ' ', role.lower()).strip() in subj: out['same_role'] = False   # our own submission tonight
-        if out.get('found') and (out.get('same_role') or (out.get('same_role') is None and not own)):
-            return f"possibly by hand — {company} confirmation email {out.get('date') or ''}: {(out.get('subject') or '')[:70]}; check before re-applying"
-    except Exception as e:
-        print('confirmation lookup failed:', str(e)[:120])
-    return None
+    found = lookup_confirmation(r, historical=True)
+    return 'possibly by hand — ' + found if found else None
 
 
 def confirmed_by_email(r, wait_s=90):
-    """After a Submit click with no on-page confirmation: confirmation emails arrive 2 s - 2 min later. One cheap
-    read-only Gmail lookup decides SUBMITTED vs. still unknown (Oct 12-13: 15 rows sat in "Needs you" this way)."""
-    company = (r.get('Company') or '').split('(')[0].strip()
-    if not company: return None
+    """After one Submit attempt, require exact-job evidence received after the click."""
     time.sleep(wait_s)
-    import auth, manager
-    try:
-        out = manager.agent(
-            f"Run TWO searches with search_threads: (1) newer_than:2h \"{company}\" and (2) newer_than:2h from:myworkday.com. "
-            f"found=true if ANY result from the last 2 hours is an application confirmation from {company} — e.g. subjects/snippets like "
-            f"'Thank you for applying', 'Thank You for Applying', 'Thank you for your online submission', 'We have received your "
-            f"application', 'Application received', 'Your application has been submitted', 'Thank you for your interest in <company>' "
-            f"(also when the sender is <tenant>@myworkday.com and the body names {company}). Put its subject in subject.",
-            auth._GMAIL_TOOLS + ['ToolSearch'], dict(_CONFIRM_SCHEMA, title='confirm'), model='haiku', budget_usd=0.06, timeout=180,
-            system='Read-only Gmail lookup. Load Gmail tools with ToolSearch (select:<names>). Never send, draft or delete. '
-                   'Finish with only the JSON object.')
-        if out.get('found'): return f"confirmed by email: {(out.get('subject') or '')[:80]}"
-    except Exception as e:
-        print('confirmation lookup failed:', str(e)[:120])
-    return None
+    return lookup_confirmation(r, since=r.get('submission_attempted_at'))
 
 
 RECHECKS = config.DATA / 'confirm_rechecks.json'
@@ -271,7 +269,12 @@ def recheck_unconfirmed(max_checks=4):
         n += 1
         state[pid] = done + [now.isoformat(timespec='seconds')]
         RECHECKS.write_text(json.dumps(state))
-        ok = confirmed_by_email({'Company': d.get('company')}, wait_s=0)
+        try:
+            target = notion.flat(notion._req('GET', f'/pages/{pid}'))
+        except Exception as error:
+            print('recheck row lookup failed:', str(error)[:120]); continue
+        target['submission_attempted_at'] = d.get('submission_attempted_at') or d['at']
+        ok = confirmed_by_email(target, wait_s=0)
         print(f"recheck {d.get('company')}: {ok or 'no confirmation yet'}")
         if not ok: continue
         try:
@@ -332,7 +335,10 @@ def save_failure(r, res):
         meta = {'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'id': r.get('id'), 'company': r.get('Company'),
                 'role': r.get('Position'), 'ats': res.get('ats'), 'status': res['status'], 'reason': res.get('reason'),
                 'url': pg.url, 'frame_url': fr.url, 'done': res.get('done'), 'unknown': res.get('unknown'),
-                'still_empty': formfill.still_empty(fr)}
+                'still_empty': formfill.still_empty(fr),
+                'form_state': __import__('application_state').inspect(fr),
+                'submission_state': res.get('submission_state'),
+                'submission_attempted_at': res.get('submission_attempted_at')}
         (base.parent / (base.name + '.json')).write_text(json.dumps(meta, indent=1, ensure_ascii=False))
         return base
     except Exception as e:
@@ -518,6 +524,10 @@ def posting_location(page):
 
 
 def run_one(ctx, r, files, dry):
+    if not dry and r.get('id') in unconfirmed_jobs():
+        res = result('NEEDS YOU', 'Unconfirmed prior Submit: verify this exact requisition before any retry')
+        res.update(ats='?', submission_state='awaiting_confirmation')
+        return res
     import hunt
     pos = r.get('Position') or ''
     if r.get('id') and hunt.non_us_title(pos):   # owner rule: non-US roles are blocked (Speechify UK, Oct 19)
@@ -578,6 +588,27 @@ def run_one(ctx, r, files, dry):
         html = page.content()[:200000]
     except Exception:
         html = ''
+    # Some Ashby discovery records expose the employer UUID as Company. Before
+    # filling those forms, verify the publisher's own JobPosting title when it
+    # is available; a same-employer posting for another role is not a match.
+    if re.fullmatch(r'[0-9a-fA-F-]{36}', r.get('Company') or '') and re.search(r'ashbyhq\.com', page.url, re.I):
+        try:
+            import jd
+            identity = jd.posting_identity(html)
+            actual = re.sub(r'[^a-z0-9]+', ' ', (identity.get('title') or '').lower()).strip()
+            expected = re.sub(r'[^a-z0-9]+', ' ', (r.get('Position') or '').lower()).strip()
+            if not identity or not actual:
+                res = result('NEEDS YOU', 'Could not verify the role on the employer posting (UUID company record)', page=page)
+                res['ats'] = 'ashby'
+                return res
+            if expected and actual != expected:
+                res = result('NEEDS YOU', f"Employer posting title differs from saved role: {identity['title'][:120]}", page=page)
+                res['ats'] = 'ashby'
+                return res
+        except Exception:
+            res = result('NEEDS YOU', 'Could not verify the role on the employer posting (UUID company record)', page=page)
+            res['ats'] = 'ashby'
+            return res
     adapter = ats.detect(page.url, html)
     loc_txt = posting_location(page)
     if r.get('id') and loc_txt:
@@ -591,7 +622,7 @@ def run_one(ctx, r, files, dry):
         res = ats.skipped(adapter, page)   # APPLY_ATS_ONLY (owner, Oct 19): Greenhouse + Ashby only for now
     else:
         res = adapter.run(ctx, page, job)
-    res['ats'] = adapter.__name__.split('.')[-1]
+    res.setdefault('ats', adapter.__name__.split('.')[-1])
     if res['status'] == 'SKIPPED': return res
     if dry:
         try: clicks = (res.get('page') or page).evaluate('window.__jhClicks || []')
@@ -628,7 +659,12 @@ def run_one(ctx, r, files, dry):
             ok, log = rescue.fix(pg0, job, [res.get('reason') or ''] + list(res.get('unknown') or []))
             print('rescue:', ok, '|', '; '.join(log)[:400])
             if ok:
+                if res.get('ats') == 'smartrecruiters':
+                    from ats import smartrecruiters
+                    res = smartrecruiters.run(ctx, pg0, job); res['ats'] = 'smartrecruiters'
                 left = formfill.still_empty(formfill.form_frame(pg0))
+                from application_state import submission_issues
+                left += submission_issues(formfill.form_frame(pg0))
                 if not left:
                     res.update(status='FILLED', reason='rescued by Claude: ' + '; '.join(log)[:200])
                     res['done'] = list(res.get('done') or []) + ['Claude rescue']
@@ -692,6 +728,10 @@ def run_one(ctx, r, files, dry):
                 res.update(status='NEEDS YOU', reason=f"{why}; only {len(res.get('done', []))} field(s) filled — check (tab open)")
         else:
             res['reason'] = f"{res['reason']} [{why}]"
+    if r.get('id') in unconfirmed_jobs():
+        res.update(status='NEEDS YOU', reason='Unconfirmed prior Submit: verify this exact requisition before any retry',
+                   submission_state='awaiting_confirmation')
+        return res
     # final submit (switch-gated; only when every required field is filled)
     if res['status'] == 'FILLED' and not dry:
         # B2: a live submit must carry the row's real tailored resume, never the test file
@@ -712,8 +752,9 @@ def run_one(ctx, r, files, dry):
         fr_s = formfill.form_frame(pg_s)   # Greenhouse embedded on a company site (Asana, PathAI Oct 20): Submit is in the iframe
         res = auth.submit(pg_s, res, frame=fr_s if fr_s is not pg_s.main_frame else None)
         if res['status'] != 'SUBMITTED' and 'no confirmation' in (res.get('reason') or ''):
-            ok = confirmed_by_email(r)
-            if ok: res.update(status='SUBMITTED', reason=ok)
+            target = dict(r, submission_attempted_at=res.get('submission_attempted_at'))
+            ok = confirmed_by_email(target)
+            if ok: res.update(status='SUBMITTED', reason=ok, submission_state='confirmed')
         if res['status'] == 'SUBMITTED':   # B3: audit log of every submission
             import hashlib
             with open(config.DATA / 'submissions.jsonl', 'a') as fh:
@@ -753,10 +794,11 @@ def main():
                     or any(re.search(x.strip(), str(r.get('Apply Via') or ''), re.I) for x in a.ats.split(',')))
                 and tried.get(r['id'], 0) < cutoff and not human.search(r.get('Notes') or '') and not still_skipped(r.get('Notes'), r.get('Link'))
                 and not (fails.get(r['id'], 0) >= 2 and tried.get(r['id'], 0) > time.time() - 12 * 3600)]
-        rows.sort(key=lambda r: r.get('created') or '', reverse=True)
+        rows.sort(key=newest_first, reverse=True)
         rows = rows[:a.max]
     elif a.only:
-        rows = [r for r in notion.rows_for_company(a.only) if r.get('Status') in ('To apply', 'Needs you')][:a.max]
+        rows = sorted((r for r in notion.rows_for_company(a.only) if r.get('Status') in ('To apply', 'Needs you')),
+                      key=newest_first, reverse=True)[:a.max]
     else:
         rows = [dict(id=a.page, Link=a.url, Company='(test)', Position='', Notes='')] if a.url else rows_to_fill()[:a.max]
     if not (a.url or a.dry or a.ids or a.only or a.ats):
@@ -847,7 +889,10 @@ def main():
                     with open(config.DATA / 'apply_results.jsonl', 'a') as fh:
                         fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'id': r.get('id'),
                                              'company': r.get('Company'), 'ats': res.get('ats'), 'status': res['status'],
-                                             'reason': (res.get('reason') or '')[:300]}) + '\n')
+                                             'role': r.get('Position'), 'url': r.get('Link'),
+                                             'submission_state': res.get('submission_state'),
+                                             'submission_attempted_at': res.get('submission_attempted_at'),
+                                             'reason': (res.get('reason') or '')[:600]}) + '\n')
                 except Exception:
                     pass
             if r.get("id") and not a.dry: mark_attempt(r["id"])

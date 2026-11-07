@@ -1,0 +1,7 @@
+<!doctype html><title>Rippling required-field regression</title>
+<form>
+<label for="resume">Résumé *</label><div><input id="resume" type="file" required style="opacity:0;width:1px;height:1px"></div>
+<label for="sponsor">Will you require sponsorship? *</label><select id="sponsor" required><option value="">Select</option><option value="no">No</option></select>
+<fieldset><legend>Text message updates (SMS) *</legend><label><input type="radio" name="sms" value="yes">Yes</label><label><input type="radio" name="sms" value="no">No</label></fieldset>
+<button type="button">Apply</button>
+</form>
