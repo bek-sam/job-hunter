@@ -188,7 +188,10 @@ def _score(b, key, terms, maxlen):
     calm = (3 if 1 <= nums <= 2 else 0) - (3 if nums >= 3 else 0) - (2 if re.search(r'~|projected', b['text']) else 0) \
         - (3 if len(b['text'].split()) > 35 else 0) \
         - (8 if len(b['text']) > BULLET_W and len(b['text']) % BULLET_W < 18 else 0)   # last line would hold 1-2 words
-    return (3 * tag + 3 * hits + calm - (3 if len(b['text']) < 90 else 0)
+    # Nov 7 (bullet review): one generic JD word ("Python") must not beat role fit -> role tag weighs 4, keyword hits cap
+    # at 3 and count 1 (not 3) for a bullet with no tag for this role
+    kw = (3 if tag else 1) * min(hits, 3)
+    return (4 * tag + kw + calm - (3 if len(b['text']) < 90 else 0)
             + (4 if b.get('confirmed') and tag else 0) + (5 if b.get('boost') and tag else 0)  # boost: pinned bullet marked to outrank others
             - (4 if LISTY.search(b['text']) else 0))  # "Built 23 pages including A, B, C, D..." lists screens, not results  # confirmed facts (with results) beat repo-only bullets
 
@@ -368,11 +371,11 @@ def build_skills(spec, key, tight=0):
 
 
 # ---------- layout ----------
-START = {'exp': [3, 2, 2], 'proj': [2, 2, 2], 'lead': [2, 2], 'tight': 0}
+START = {'exp': [4, 2, 2], 'proj': [2, 2, 2], 'lead': [2, 2], 'tight': 0}   # Nov 7: main role 4 (research: 3-5), 2 of them tailored
 TRIM = [  # applied in order until the page fits: least important content goes first
     # Oct 23: leadership bullets go before job bullets (the resumes that got OAs had a 2-line leadership block, 2 bullets per job)
     ('lead', 1, 1), ('lead', 0, 1), ('exp', 1, 1), ('proj', 2, 1), ('proj', 2, 0), ('tight', None, 12), ('proj', 1, 1),
-    ('exp', 2, 1), ('exp', 0, 2), ('proj', 0, 1),  # a 3rd project goes before a job bullet; every job keeps >= 1
+    ('exp', 2, 1), ('exp', 0, 3), ('exp', 0, 2), ('proj', 0, 1),  # a 3rd project goes before a job bullet; every job keeps >= 1
 ]
 LEVELS = len(TRIM) + 1
 TRIM_WEB = list(TRIM)
