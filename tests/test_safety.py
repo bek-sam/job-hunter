@@ -108,6 +108,8 @@ class DryGuard(unittest.TestCase):
 
 
 class KeepTabs(unittest.TestCase):
+    @mock.patch.object(apply_prep, 'KEEP_TABS', True)
+    @mock.patch.object(apply_prep, 'KEEP_FILLED', True)
     def test_filled_kept_only_without_auto_submit(self):
         with mock.patch.dict(os.environ, {'AUTO_SUBMIT': '0'}):
             self.assertTrue(apply_prep.will_keep({'status': 'FILLED', 'reason': '12 fields'}))
