@@ -19,7 +19,7 @@ from gen_v5 import NAME, CONTACT, CANON, FAMILY, THEMES, canon, _run, _link, _pa
 import applicant as P, config
 
 OUT = os.environ.get('RESUME_OUT', str(config.RESUMES))
-VERSION = 'v6.4'   # written to the Notion row's Notes, so replies can be compared per resume version
+VERSION = 'v6.5'   # written to the Notion row's Notes, so replies can be compared per resume version
 FACTS = config.DATA / 'resume_facts.json'
 
 # ---------- fixed facts: profile.json "resume_v6" (git-ignored) ----------
@@ -345,6 +345,8 @@ def build_skills(spec, key, tight=0):
         cat = next(c for c, rx in CATRX if re.search(rx, n.lower()))
         if n not in pri[cat]: pri[cat].append(n)
     for c in CATS:  # proven JD skills first; base items already covered by a JD item are dropped
+        # Nov 7: two JD skills where one contains the other ("Machine Learning (PyTorch)" + "PyTorch") -> keep the longer one
+        pri[c] = [n for n in pri[c] if not any(o != n and _covers(n.lower(), o.lower()) for o in pri[c])]
         pri[c].sort(key=lambda n: n.lower() not in ok)
         low = [p.lower() for p in pri[c]]
         lines[c] = [b for b in lines[c] if not any(_covers(p, b.lower()) or _covers(b.lower(), p) for p in low)]
