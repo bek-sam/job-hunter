@@ -15,7 +15,7 @@ import argparse, concurrent.futures as cf, datetime as dt, json, re, sys, urllib
 from zoneinfo import ZoneInfo
 import config, notion, notify
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 UA = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/126 Safari/537.36'}
 CLOSED_RX = re.compile(r'no longer accepting applications|not currently accepting|this job (is|has been) closed|job (is )?no longer '
                        r'(available|open)|position has been filled|posting (has been )?(closed|removed)|job not found|'
@@ -122,18 +122,31 @@ def main():
     ap.add_argument('--days', type=int, default=10); ap.add_argument('--top', type=int, default=10)
     ap.add_argument('--sweep', action='store_true', help='check every open row (any age) and close dead ones')
     ap.add_argument('--dry', action='store_true')
+    ap.add_argument('--daily-flag', help='file to write when the run finished (fast_hunter: once-a-day marker)')
     a = ap.parse_args()
+    import fcntl   # one apply_now at a time (the daily background run + a manual --sweep)
+    global _LOCK
+    _LOCK = open(config.DATA / 'apply_now.lock', 'w')
+    try: fcntl.flock(_LOCK, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print('another apply_now run is active -> skipping'); return
+    run(a)
+    if a.daily_flag and not a.dry:
+        import pathlib; pathlib.Path(a.daily_flag).write_text(dt.datetime.now(CT).isoformat())
+
+
+def run(a):
     rows = candidates(0 if a.sweep else a.days)
     rows.sort(key=lambda r: (fit(r), r.get('created') or ''), reverse=True)
     check = rows if a.sweep else rows[:60]          # daily: only the best 60 need a check
     with cf.ThreadPoolExecutor(8) as ex:
         live = dict(zip([r['id'] for r in check], ex.map(lambda r: liveness(r['Link']), check)))
-    stamp = dt.datetime.now(CT).strftime('%b %d %I:%M %p CT')
+    stamp = dt.datetime.now(CT).strftime('%b %d %I:%M %p %Z')
     closed = [r for r in check if live[r['id']] == 'closed']
     for r in closed:
         if not a.dry:
-            notion.update_row(r['id'], notion.props(Status='Closed', Notes=(f"CLOSED – posting no longer accepts applications "
-                                                                            f"(apply_now check {stamp}) | " + (r.get('Notes') or ''))[:1990]))
+            notion.update_row(r['id'], notion.props(Status='Closed', Notes=notion.join_notes(f"CLOSED – posting no longer accepts applications "
+                                                                            f"(apply_now check {stamp})", r.get('Notes'))))
     top, per_co = [], {}
     for r in check:
         co = re.sub(r'[^a-z0-9]', '', (r.get('Company') or '').lower())[:12]

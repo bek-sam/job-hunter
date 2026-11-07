@@ -1,0 +1,25 @@
+name: tests
+# Compile every module and run the safety unit tests (no browser, no Notion, no LLM, no secrets needed).
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Install (pinned requirements; no Playwright browsers needed)
+        run: pip install -r requirements.txt
+      - name: Compile
+        run: python -m compileall -q jobhunter tests
+      - name: Shell syntax
+        run: sudo apt-get install -y -qq zsh >/dev/null && for f in scripts/*.sh; do zsh -n "$f"; done
+      - name: Safety tests
+        run: python -m unittest discover -s tests -v

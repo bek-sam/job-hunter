@@ -803,7 +803,7 @@ def self_identify(page):
         # authorized by the owner Oct 13 2026 (AUTO_SELF_ID=1): sign the voluntary disability self-ID with the profile name + today's date
         import datetime as _dt
         from zoneinfo import ZoneInfo
-        today = _dt.datetime.now(ZoneInfo('America/Chicago'))
+        import config as _cfg; today = _dt.datetime.now(_cfg.TZ)
         try:
             nm = page.locator('input[id*="selfIdentifiedDisabilityData--name"], [data-automation-id="name"] input, input[data-automation-id="name"]')
             if nm.count() and not (nm.first.input_value() or '').strip(): nm.first.fill(P.get('identity', 'workday_self_id_name') or P.NAME); nm.first.press('Tab')

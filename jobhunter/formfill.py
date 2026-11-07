@@ -372,12 +372,23 @@ def pick_range(options, amt):
     return None
 
 
-FALLBACK = [   # when the Answer Bank value matches no option (owner, Oct 19)
-    (r'work authori[sz]ation|authori[sz]ed to work', [r'authori[sz]ed to work (for any|in the|without)|do not (require|need) (visa )?sponsor|without (visa )?sponsor']),
-    (r'(current|former).{0,20}employee|(ever|previously) (worked|been employed)|worked (for|at) .{0,30} before', [r'^never\b|have never|^no\b|not (a )?(current|former)']),
+def _says(key, rx):
+    """True when this profile's answer for `key` matches rx (e.g. authorized_to_work = Yes)."""
+    a = P.answer(key)
+    return bool(a and re.search(rx, str(a[0]), re.I))
+
+
+# when the Answer Bank value matches no option (owner, Oct 19). The fact-type fallbacks follow THIS profile's own
+# answers: a visa holder's profile (needs_sponsorship = Yes) never gets "authorized without sponsorship" picked.
+FALLBACK = ([
+    (r'work authori[sz]ation|authori[sz]ed to work', [r'authori[sz]ed to work (for any|in the|without)|do not (require|need) (visa )?sponsor|without (visa )?sponsor'])]
+    if _says('authorized_to_work', r'^yes') and _says('needs_sponsorship', r'^no') else []) + ([
+    (r'(current|former).{0,20}employee|(ever|previously) (worked|been employed)|worked (for|at) .{0,30} before', [r'^never\b|have never|^no\b|not (a )?(current|former)'])]
+    if _says('worked_here_before', r'^no') else []) + ([
+    (r'clearance', [r'^none\b|^no\b|no (active )?clearance|not applicable|^n/?a\b', r'do not wish|prefer not|decline'])]
+    if not _says('active_clearance', r'^yes') else []) + [
     (r'\bstate\b|region in which you', [r'another state|other (us |u\.s\. )?state|^other\b']),
     (r'how did you (hear|find|learn)|where did you (hear|find|see)|source', [r'linkedin', r'job ?board|online|website|career', r'^other\b']),
-    (r'clearance', [r'^none\b|^no\b|no (active )?clearance|not applicable|^n/?a\b', r'do not wish|prefer not|decline']),
     # school not in a plain <select> (Palantir/Lever "Please select Other (School Not Listed)", Oct 26); comboboxes do this in fill_pass
     (r'^(?!.*high school).*(school|university|college|institution)', [r'^other\b.{0,30}(not (listed|found)|school)', r'^other\b']),
     # "Do any of the following apply to you? (current employee / contractor / intern of X...)" (Workday Cohesity, Oct 26)
@@ -653,9 +664,9 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
                         o = pick(texts, r'^other\b', None)
                         if o: break
                 if not o and re.search(r'start date|available to start|when can you start|start working', label, re.I):
-                    # month pickers that begin after Dec 2026 (Zip "ideal start date": January 2027 ...): earliest start is
-                    # Dec 30 2026, so January 2027 is the truthful nearest option
-                    for q, rx in (('December 2026', r'^dec(ember)?\b.*2026'), ('January 2027', r'^jan(uary)?\b.*2027')):
+                    # month pickers (Zip "ideal start date": January 2027 ...): the profile's start month, else the
+                    # month after it (a start late in the month -> the next month is the nearest true option)
+                    for q, rx in start_month_queries():
                         loc.fill(''); loc.press_sequentially(q, delay=20)
                         for _ in range(4):
                             f.wait_for_timeout(600)
@@ -697,6 +708,21 @@ def fill_pass(page_or_frame, resume_pdf, cover_txt, cover_text, pending=None):
 
 
 MONTHS = {m: i for i, m in enumerate(['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'], 1)}
+
+
+def start_month_queries():
+    """[(search text, option regex)] for the profile's start_date month and the month after, e.g.
+    'June 1, 2027' -> [('June 2027', ...), ('July 2027', ...)]. Empty when the profile has no parsable start_date."""
+    a = P.answer('start_date')
+    d = iso_date(a[0]) if a else None
+    if not d: return []
+    y, m = int(d[:4]), int(d[5:7])
+    names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+    out = []
+    for yy, mm in ((y, m), (y + (m == 12), m % 12 + 1)):
+        n = names[mm - 1]
+        out.append((f'{n} {yy}', rf'^{n[:3].lower()}({n[3:].lower()})?\b.*{yy}'))
+    return out
 
 
 def iso_date(val):

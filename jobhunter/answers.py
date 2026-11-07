@@ -1,11 +1,21 @@
-"""Answer an application's custom questions in ONE small LLM call, truthfully, from his real facts only.
+"""Answer an application's custom questions in ONE small LLM call, from his facts first.
 Input: field descriptors the rule-based filler couldn't answer (label, kind, options, maxlength).
-Output: fills the fields; returns the labels it answered. Anything not answerable from the facts stays empty
-(the row goes to NEEDS YOU with that question) -- never guessed."""
+Output: fills the fields; returns the labels it answered. Questions the facts don't cover get the most reasonable
+answer for him (preferences, how-heard, availability, motivation...) instead of stalling the row. Left empty (row ->
+NEEDS YOU) only: legal/consent/signature items, and anything that would need an employer, degree, title, date,
+metric or certification he doesn't have."""
 import applicant as P
 import json, re
 import config, llm, jd as JD, packet
 from gen_v5 import EDU, EXP, PROJ, AWARDS
+
+def _yes_no(key, default):
+    a = P.answer(key)
+    return (str(a[0]).strip() if a else default)
+
+
+AUTH, SPONSOR = _yes_no('authorized_to_work', ''), _yes_no('needs_sponsorship', '')
+AI_ESSAYS_OK = bool(P.get('llm', 'ai_essays_ok', default=False))   # profile opt-in, off by default
 
 GUESS = ("Owner rule (Oct 26 2026): GUESS when the facts don't say -- preference, opinion, familiarity, platform usage, how-heard, availability, interest, yes/no screening and essay questions always get the most plausible answer that helps the application. Still NEVER invent verifiable facts (employers, titles, dates, degrees, schools, GPA, test scores, certifications, metrics) or legal status (citizenship, immigration, export control, criminal record, clearance): those come only from the facts, else null.")
 
@@ -20,11 +30,14 @@ SYSTEM = (
     "skill has no evidence in the facts, answer 0 or the lowest option. "
     "Essays: specific to this company/team from the JD, 1-2 real projects mapped to their needs, plain polite English, no "
     "flattery, no clichés, first person, within the length limit (default 90-170 words). "
-    "Work authorization / sponsorship questions inside a form: authorized = Yes, sponsorship = No. But NEVER mention "
+    + (f"Work authorization / sponsorship questions inside a form: authorized = {AUTH}, needs sponsorship = {SPONSOR}. "
+       if AUTH and SPONSOR else "Work authorization / sponsorship questions: return null (not in his profile). ") +
+    "NEVER mention "
     "work authorization, residency, green card, visa or citizenship inside essays or free-text answers. "
     "Form status questions (immigration status, citizenship country, U.S. person, export-control country lists, "
     "criminal record, government officials, pronouns, self-ID): answer from the Answer Bank section 'Application form facts'. "
-    "Essays that say 'do not use AI' are authorized by him: write them from the facts like any essay. "
+    + ("Essays that say 'do not use AI' are authorized by him: write them from the facts like any essay. " if AI_ESSAYS_OK else
+       "If a question or the form says not to use AI / to write it yourself, return null for it (he writes it). ") +
     "Legal agreements, consent, signatures, certifications: always null.")
 
 SCHEMA = {'type': 'object', 'required': ['answers'], 'properties': {'answers': {'type': 'array', 'items': {

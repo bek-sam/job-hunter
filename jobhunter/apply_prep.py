@@ -17,7 +17,7 @@ import config, formfill, notion, notion_pages, notify
 import ats
 from ats.common import result
 
-CT = ZoneInfo('America/Chicago')
+CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 FILES = config.DATA / 'apply_files'; FILES.mkdir(exist_ok=True)
 
 
@@ -53,16 +53,25 @@ def unconfirmed_jobs():
     return pending
 
 
+# Approval queue (Nov 6, like Scale.jobs' "approve the roles" step): APPROVAL_QUEUE=1 -> scheduled runs fill only rows
+# you set to Status "Approved" (any age) + FILL NOW rows; new rows wait in "To apply" until you approve them.
+APPROVAL = os.environ.get('APPROVAL_QUEUE') == '1'
+
+
 def rows_to_fill():
     since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48)).isoformat()
-    fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
+    if APPROVAL:
+        fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'Approved'}},
+                                     {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}}]})
+    else:
+        fast = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                  {'property': 'Notes', 'rich_text': {'contains': 'FAST'}},
                                  {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
                                  {'timestamp': 'created_time', 'created_time': {'on_or_after': since}}]})
     now = notion.query({'property': 'Notes', 'rich_text': {'contains': 'FILL NOW'}})
     # Include the backlog in one queue; posting recency determines order across all sources.
     days = float(os.environ.get('BACKLOG_DAYS', '14'))
-    if days > 2:
+    if days > 2 and not APPROVAL:   # approval mode: only rows he approved
         old_since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
         backlog = notion.query({'and': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                         {'property': 'Notes', 'rich_text': {'does_not_contain': 'FILLED'}},
@@ -143,25 +152,23 @@ def posting_key(url):
 
 
 def already_submitted(url):
-    """'<date> as <company>' if this posting is in data/submissions.jsonl, else None."""
+    """'<date> as <company>' if this posting is in data/submissions.jsonl (or past "To apply" in Notion), else None.
+    Fails CLOSED: when the Notion check can't run, it returns a reason (= do not submit), never None."""
     k = posting_key(url)
     if not k: return None
-    try:
-        for line in (config.DATA / 'submissions.jsonl').read_text().splitlines():
-            try: d = json.loads(line)
-            except Exception: continue
-            if d.get('url') and posting_key(d['url']) == k: return f"{d.get('at', '')[:16]} as {d.get('company')}"
-    except FileNotFoundError:
-        pass
+    for d in submissions():
+        if d.get('url') and posting_key(d['url']) == k:
+            return f"{d.get('at', '')[:16]} as {d.get('company')}" + (' (Submit clicked, confirmation never seen)' if d.get('pending') else '')
     global _DONE_KEYS
     if _DONE_KEYS is None:          # applied before submissions.jsonl existed: Notion rows already past "To apply"
-        _DONE_KEYS = {}
+        keys = {}
         try:
             for st in ('Applied', 'OA', 'Interview', 'Offer', 'Rejected', 'Closed'):
                 for r in notion.query({'property': 'Status', 'select': {'equals': st}}):
-                    if r.get('Link'): _DONE_KEYS.setdefault(posting_key(r['Link']), f"(Notion: {r.get('Company')}, {st})")
-        except Exception:
-            pass
+                    if r.get('Link'): keys.setdefault(posting_key(r['Link']), f"(Notion: {r.get('Company')}, {st})")
+        except Exception as e:      # unknown = maybe applied: never submit on a failed check (retried next row/run)
+            return f"(could not check Notion for an earlier application: {str(e)[:80]})"
+        _DONE_KEYS = keys
     return _DONE_KEYS.get(k)
 
 
@@ -172,25 +179,33 @@ _CONFIRM_SCHEMA = {'type': 'object', 'required': ['found'], 'properties': {
     'same_role': {'type': ['boolean', 'null']}}}
 
 
+_SUBS = {'mtime': None, 'rows': []}
+
+
+def submissions():
+    """Parsed data/submissions.jsonl, re-read only when the file changed (it was read in full several times per row)."""
+    f = config.DATA / 'submissions.jsonl'
+    try: m = f.stat().st_mtime_ns
+    except FileNotFoundError: return []
+    if _SUBS['mtime'] != m:
+        rows = []
+        for line in f.read_text().splitlines():
+            try: rows.append(json.loads(line))
+            except Exception: continue
+        _SUBS.update(mtime=m, rows=rows)
+    return _SUBS['rows']
+
+
 def own_roles(company):
     """Normalized role titles we submitted to this company (data/submissions.jsonl)."""
-    c = _co(company); out = []
-    try:
-        for l in (config.DATA / 'submissions.jsonl').read_text().splitlines():
-            d = json.loads(l) if l.strip() else {}
-            if _co(d.get('company')) == c: out.append(re.sub(r'\W+', ' ', (d.get('role') or '').lower()).strip())
-    except Exception:
-        pass
-    return out
+    c = _co(company)
+    return [re.sub(r'\W+', ' ', (d.get('role') or '').lower()).strip() for d in submissions() if _co(d.get('company')) == c]
 
 
 def company_submitted(company):
     """True if our own submissions log has an application to this company (any role)."""
     c = _co(company)
-    try:
-        return any(_co(json.loads(l).get('company')) == c for l in (config.DATA / 'submissions.jsonl').read_text().splitlines() if l.strip())
-    except Exception:
-        return False
+    return any(_co(d.get('company')) == c for d in submissions())
 
 
 def company_recent(company, role=''):
@@ -209,7 +224,7 @@ def company_recent(company, role=''):
     return max(hits) if config.PER_COMPANY_MAX and len(hits) >= config.PER_COMPANY_MAX else None
 
 
-def lookup_confirmation(r, since=None, historical=False):
+def lookup_confirmation(r, since=None, historical=False, fail_closed=False):
     import auth, manager, confirmation
     if not r.get('Position') and not confirmation.requisition(r.get('Link') or r.get('Apply Link')):
         return None
@@ -221,6 +236,7 @@ def lookup_confirmation(r, since=None, historical=False):
             return f"confirmed by email {out['message_id']}: {(out.get('subject') or '')[:80]}"
     except Exception as error:
         print('confirmation lookup failed:', str(error)[:120], flush=True)
+        if fail_closed: raise
     return None
 
 
@@ -231,7 +247,10 @@ def emailed_confirmation(r):
         if created > dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=48): return None
     except (ValueError, TypeError):
         pass
-    found = lookup_confirmation(r, historical=True)
+    try:
+        found = lookup_confirmation(r, historical=True, fail_closed=True)
+    except Exception as e:   # fail CLOSED: an old row whose inbox check failed is not submitted (retried next run)
+        return f"could not check Gmail for an earlier {(r.get('Company') or '').split('(')[0].strip()} confirmation ({str(e)[:60]}) — check your inbox, then submit by hand"
     return 'possibly by hand — ' + found if found else None
 
 
@@ -379,6 +398,10 @@ def looks_like_login(page):
             and bool(re.search(r'create (an )?account|first time here|forgot (your )?password|new user|register', t, re.I)))
 
 
+# auth.submit's reason after a Submit click with no confirmation (it may have gone through)
+UNCONFIRMED = re.compile(r'clicked Submit ONCE|may have gone through', re.I)
+
+
 SUBMIT_REQ = re.compile(r'submit|/applications?(/|\?|$)|apply(Job|ToJob|Now)?\b|/jobs/\d+/?(\?|$)', re.I)
 
 
@@ -459,10 +482,22 @@ def close_forms(ctx):
         pass
 
 
+# A FILLED form that nothing will submit (AUTO_SUBMIT off) used to be closed: all the filling work was thrown away and
+# he had to start over. Keep it open for his Submit click instead (KEEP_FILLED_TABS=0 restores the old behaviour).
+KEEP_FILLED = os.environ.get('KEEP_FILLED_TABS', '1') == '1'
+
+
+def will_keep(res):
+    """Would keep_tab keep this result's tab (ignoring the MAX_KEPT cap)?"""
+    st = res.get('status')
+    if not KEEP_TABS or st not in ('NEEDS YOU', 'FILLED'): return False
+    if st == 'FILLED' and not (KEEP_FILLED and os.environ.get('AUTO_SUBMIT') != '1'): return False
+    return not re.search(r'posting closed|no longer|not a .*posting|bad link|already applied', res.get('reason') or '', re.I)
+
+
 def keep_tab(ctx, before, r, res):
-    """Keep this row's tab(s) open for manual fixing (NEEDS YOU only, max MAX_KEPT). Returns True if kept."""
-    if not KEEP_TABS or res.get('status') != 'NEEDS YOU': return False
-    if re.search(r'posting closed|no longer|not a .*posting|bad link|already applied', res.get('reason') or '', re.I): return False
+    """Keep this row's tab(s) open for him (NEEDS YOU, or FILLED when AUTO_SUBMIT is off; max MAX_KEPT). True if kept."""
+    if not will_keep(res): return False
     if len([p for p in PROTECT if not p.is_closed()]) >= MAX_KEPT: return False
     new = [p for p in ctx.pages if p not in before and p.url not in ('about:blank', '')]
     if not new: return False
@@ -473,6 +508,34 @@ def keep_tab(ctx, before, r, res):
         fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(timespec='seconds'), 'id': r.get('id'), 'company': r.get('Company'),
                              'role': r.get('Position'), 'url': new[-1].url, 'why': (res.get('reason') or '')[:300]}) + '\n')
     return True
+
+
+PROOF = config.DATA / 'proof'
+
+
+def proof_shot(page, r, tag):
+    """Full-page screenshot as proof of what was submitted (data/proof/<date>/<row>-<tag>.png). Never raises."""
+    try:
+        d = PROOF / dt.datetime.now(CT).strftime('%Y-%m-%d'); d.mkdir(parents=True, exist_ok=True)
+        f = d / f"{(r.get('id') or 'test')[:36]}-{dt.datetime.now(CT):%H%M%S}-{tag}.png"
+        page.screenshot(path=str(f), full_page=True, timeout=20000)
+        return f
+    except Exception as e:
+        print('proof screenshot failed:', str(e)[:100]); return None
+
+
+def attach_proof(page_id, shots):
+    """Upload the proof screenshots to the row's Notion page (heading + one image block each)."""
+    shots = [s for s in shots or [] if s and os.path.exists(s)]
+    if not shots or not page_id: return
+    try:
+        blocks = [{'type': 'heading_3', 'heading_3': {'rich_text': notion._rt(f'Submission proof ({dt.datetime.now(CT):%b %d %I:%M %p %Z})')}}]
+        for s in shots:
+            fid = notion.upload_file(str(s))
+            blocks.append({'type': 'image', 'image': {'type': 'file_upload', 'file_upload': {'id': fid}}})
+        notion.append(page_id, blocks)
+    except Exception as e:
+        print('proof upload failed:', str(e)[:120])
 
 
 def thin_ok(res, page):
@@ -740,8 +803,19 @@ def run_one(ctx, r, files, dry):
             return res
         res['dry'] = dry
         prior = already_submitted((res.get('page') or page).url)
+        if prior and prior.startswith('(could not check'):   # check failed: unknown, not "applied" (row stays Needs you)
+            res.update(status='NEEDS YOU', reason=f"form filled, NOT submitted: {prior[1:-1]}")
+            return res
+        if prior and 'confirmation never seen' in prior:   # not "applied" (Notion would say Applied): his call
+            res.update(status='NEEDS YOU', reason=f"Submit was clicked for this posting {prior} and it may have gone through — "
+                                                  "check your inbox (not submitting again)")
+            return res
         if prior:   # same posting reached through another row (EngRadar repost of RF-SMART, Oct 12: 3rd application)
             res.update(status='NEEDS YOU', reason=f"already applied — same posting was submitted {prior} (not submitting again)")
+            return res
+        if 'RESUME CHECK FAILED' in (r.get('Notes') or ''):   # resume_check.py: an ATS would mis-parse this PDF
+            res.update(status='NEEDS YOU', reason='form filled, NOT submitted: the tailored resume failed the ATS parse check '
+                                                  '(see the row\'s "Resume check") — fix or replace the PDF, then submit')
             return res
         maybe = emailed_confirmation(r)
         if maybe:   # old row: he may have applied by hand -> his call (stays Needs you, not Applied)
@@ -750,18 +824,27 @@ def run_one(ctx, r, files, dry):
         armed['on'] = True                      # only auth.submit's own click may send the application
         pg_s = res.get('page') or page
         fr_s = formfill.form_frame(pg_s)   # Greenhouse embedded on a company site (Asana, PathAI Oct 20): Submit is in the iframe
+        if auth.ON('AUTO_SUBMIT'): res['proof'] = [proof_shot(pg_s, r, 'filled')]   # what was sent, before the click
         res = auth.submit(pg_s, res, frame=fr_s if fr_s is not pg_s.main_frame else None)
+        res.setdefault('proof', [])
+        if auth.ON('AUTO_SUBMIT'): res['proof'].append(proof_shot(pg_s, r, 'after-submit'))
         if res['status'] != 'SUBMITTED' and 'no confirmation' in (res.get('reason') or ''):
-            target = dict(r, submission_attempted_at=res.get('submission_attempted_at'))
-            ok = confirmed_by_email(target)
+            pending_row = dict(r, submission_attempted_at=res.get('submission_attempted_at'))
+            ok = confirmed_by_email(pending_row)
             if ok: res.update(status='SUBMITTED', reason=ok, submission_state='confirmed')
-        if res['status'] == 'SUBMITTED':   # B3: audit log of every submission
+        clicked = res['status'] == 'SUBMITTED' or bool(UNCONFIRMED.search(res.get('reason') or ''))
+        if clicked:   # B3: audit log of every submission -- also an UNCONFIRMED click, which may have gone through:
+            # it must block every later submit of this posting (and of the row's own Link) until he checks
             import hashlib
+            urls = dict.fromkeys(u for u in ((res.get('page') or page).url, r.get('Link'), target) if u)
             with open(config.DATA / 'submissions.jsonl', 'a') as fh:
-                fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(), 'company': r.get('Company'), 'role': r.get('Position'),
-                                     'ats': res.get('ats'), 'url': (res.get('page') or page).url, 'resume_bytes': os.path.getsize(files['pdf']),
-                                     'resume_sha1': hashlib.sha1(open(files['pdf'], 'rb').read()).hexdigest()[:12],
-                                     'cover_letter': bool(files.get('cover_text'))}) + '\n')
+                for u in urls:
+                    fh.write(json.dumps({'at': dt.datetime.now(CT).isoformat(), 'company': r.get('Company'), 'role': r.get('Position'),
+                                         'ats': res.get('ats'), 'url': u, 'resume_bytes': os.path.getsize(files['pdf']),
+                                         'resume_sha1': hashlib.sha1(open(files['pdf'], 'rb').read()).hexdigest()[:12],
+                                         'cover_letter': bool(files.get('cover_text')),
+                                         'pending': res['status'] != 'SUBMITTED', 'row': r.get('id'),
+                                         'proof': [str(x) for x in res.get('proof') or [] if x]}) + '\n')
     return res
 
 
@@ -787,7 +870,7 @@ def main():
         want = [dom.get(x.strip(), re.escape(x.strip())) for x in a.ats.split(',')]
         tried = attempts(); cutoff = time.time() - RETRY_HOURS * 3600; fails = recent_fails()
         # rows that wait on HIS decision are never auto-applied (Akuna "your ONE pick", expired assessments)
-        human = re.compile(r'must confirm|your ONE\b|EXPIRED', re.I)
+        human = re.compile(r'must confirm|your ONE\b|EXPIRED|clicked Submit ONCE|may have gone through|possibly by hand|already applied', re.I)
         rows = [r for r in notion.query({'or': [{'property': 'Status', 'select': {'equals': 'To apply'}},
                                                 {'property': 'Status', 'select': {'equals': 'Needs you'}}]})
                 if (any(re.search(w, r.get('Link') or '', re.I) for w in want)
@@ -833,7 +916,7 @@ def main():
             # one row, print where it hangs and exit; the attempt is stamped first so the next run skips that row a while
             faulthandler.dump_traceback_later(1500, exit=True)
             if r.get('id') and not a.dry: mark_attempt(r['id'])
-            stamp = dt.datetime.now(CT).strftime('%b %d %I:%M %p CT')
+            stamp = dt.datetime.now(CT).strftime('%b %d %I:%M %p %Z')
             try: before = list(ctx.pages)
             except Exception: before = []
             if li_limited and 'linkedin.com' in (r.get('Link') or ''):
@@ -911,7 +994,7 @@ def main():
             if r.get('id') and not a.dry and res['status'] == 'SKIPPED':
                 try:
                     import community
-                    upd = notion.props(Notes=(f"AUTO-SKIP {stamp} – {res['reason']} (apply by hand) | " + (r.get('Notes') or ''))[:1990])
+                    upd = notion.props(Notes=notion.join_notes(f"AUTO-SKIP {stamp} – {res['reason']} (apply by hand)", r.get('Notes')))
                     fin = (res.get('page').url if res.get('page') else '') or ''
                     via = res.get('via') or (community.apply_via(fin) if fin.startswith('http') and 'linkedin.com' not in fin else None)
                     if via: upd['Apply Via'] = {'select': {'name': via}}
@@ -935,8 +1018,9 @@ def main():
                     note, status = f"FILLED – click Submit ({res['ats']}, tab open, {stamp})", None
                 else:
                     note, status = f"NEEDS YOU – {res['reason'][:600]} ({res['ats']}, tab open, {stamp})", 'Needs you'
-                note = note.replace('(tab open', '(tab closed — open the Link to finish').replace('tab open', 'tab closed — open the Link to finish')
-                upd = notion.props(Notes=(note + ' | ' + (r.get('Notes') or ''))[:1990], Status=status, DateApplied=applied)
+                if not will_keep(res):   # the tab is closed below -> say so in the note
+                    note = note.replace('(tab open', '(tab closed — open the Link to finish').replace('tab open', 'tab closed — open the Link to finish')
+                upd = notion.props(Notes=notion.join_notes(note, r.get('Notes')), Status=status, DateApplied=applied)
                 try:   # learned where this job really applies -> Apply Via column. Only what was SEEN: the Easy Apply
                     # button (linkedin adapter sets res['via']) or the site the run ended on; a LinkedIn error/sign-in
                     # wall says nothing (Oct 20: those were all labelled Easy Apply)
@@ -950,6 +1034,7 @@ def main():
                 except Exception:
                     pass
                 notion.update_row(r['id'], upd)
+                if res.get('proof'): attach_proof(r['id'], res['proof'])
             base = save_failure(r, res) if not a.dry and res['status'] in ('NEEDS YOU', 'ERROR', 'FILLED') else None
             if tracing:
                 try: ctx.tracing.stop(path=str(base) + '.trace.zip') if base else ctx.tracing.stop()
@@ -959,8 +1044,9 @@ def main():
             # listed in data/kept_tabs.jsonl + its Notion note; everything else is closed.
             kept = keep_tab(ctx, before, r, res)
             if kept and r.get('id') and not a.dry:
-                try: notion.update_row(r['id'], notion.props(Notes=(f"TAB LEFT OPEN in the apply Chrome for you to finish | NEEDS YOU – "
-                                                                    f"{(res.get('reason') or '')[:500]} ({stamp}) | " + (r.get('Notes') or ''))[:1990]))
+                what = 'FILLED – click Submit' if res.get('status') == 'FILLED' else 'NEEDS YOU'
+                try: notion.update_row(r['id'], notion.props(Notes=notion.join_notes(
+                    f"TAB LEFT OPEN in the apply Chrome for you to finish | {what} – {(res.get('reason') or '')[:500]} ({stamp})", r.get('Notes'))))
                 except Exception: pass
             close_forms(ctx)
     faulthandler.cancel_dump_traceback_later()

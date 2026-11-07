@@ -82,6 +82,25 @@ def _rt(s):
     return [{'type': 'text', 'text': {'content': s[i:i + 1900]}} for i in range(0, len(s), 1900)] or []
 
 
+NOTES_MAX = 1990
+CORE_RX = re.compile(r'FAST \|')   # the hunter's original note (source, fit, match, resume version) -- other tools parse it
+
+
+def join_notes(new, old, limit=NOTES_MAX):
+    """New note in front of the old Notes, within Notion's limit. The row's original 'FAST | ... fit NN ...' note is
+    kept whole at the end: plain [:1990] cut it off after ~3 apply attempts and fit ranking / FAST filters broke."""
+    new, old = (new or '').strip(), (old or '').strip()
+    s = f'{new} | {old}' if new and old else (new or old)
+    if len(s) <= limit: return s
+    m = None
+    for m in CORE_RX.finditer(old): pass   # last FAST note = the original one
+    core = old[m.start():] if m else ''
+    if len(core) > limit // 2: core = core[:limit // 2]
+    room = limit - len(core) - (len(' | … | ') if core else 0)
+    head = f'{new} | {old[:m.start()] if m else old}'.strip(' |')[:max(room, 0)]
+    return f'{head} | … | {core}'[:limit] if core else head[:limit]
+
+
 def props(Company=None, Position=None, Status=None, Notes=None, Link=None, Location=None, DatePosted=None,
           DateApplied=None, Outreach=None, Recruiters=None, LinkedIn=None, LastContact=None, ApplyLink=None):
     p = {}
