@@ -41,9 +41,8 @@ fallback on usage limits (`CODEX_FALLBACK=0` disables fallback).
 `CODEX_BIN` and `CODEX_MODEL` optionally override the executable and model.
 Calls run in a temporary directory with a read-only sandbox and without user
 configuration. Codex schemas are normalized for strict structured output.
-Manager and Outreach use your connected Gmail account for search/read and
-unsent draft creation, plus live web research. Manager can also read Calendar
-and create private OA/interview events without attendees. The scheduled
+Outreach uses your connected Gmail account for search/read and
+unsent draft creation, plus live web research. The scheduled
 connector configuration blocks all other apps and unlisted tools, including
 email sending/forwarding/deletion and event updates/deletion. Existing Codex
 account authentication is reused; no Google credentials are stored here.
@@ -80,7 +79,7 @@ An already-running batch finishes its current order; subsequent runs use the new
   loads its cover-letter section). Link it into Claude Code: `ln -s "$PWD/skills/tailor-resume" ~/.claude/skills/`
 - `jobhunter/reports.py` — daily apply report (10 PM) and a 14-day response-rate review, both in Notion Reports;
   every auto-submit attaches before/after screenshots to the row as proof
-- `jobhunter/manager.py`, `outreach.py`, `prompts/` — optional LLM coach and recruiter-outreach drafts
+- `jobhunter/outreach.py`, `tool_agent.py`, `prompts/` — optional recruiter-outreach drafts (tool-restricted `claude -p`)
 
 ## Rules the code enforces
 

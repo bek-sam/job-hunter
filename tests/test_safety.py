@@ -68,8 +68,8 @@ class DuplicateSubmitGuard(unittest.TestCase):
 
     def test_gmail_failure_fails_closed(self):
         old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=3)).isoformat()
-        fake = types.ModuleType('manager'); fake.agent = mock.Mock(side_effect=RuntimeError('claude not logged in'))
-        with mock.patch.dict(sys.modules, {'manager': fake}):
+        fake = types.ModuleType('tool_agent'); fake.agent = mock.Mock(side_effect=RuntimeError('claude not logged in'))
+        with mock.patch.dict(sys.modules, {'tool_agent': fake}):
             got = apply_prep.emailed_confirmation({'created': old, 'Company': 'Acme', 'Position': 'SWE'})
         self.assertIn('could not check Gmail', got)
 

@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import codex_connectors as connectors
 import llm
-import manager
+import tool_agent
 import outreach
 
 
@@ -35,11 +35,10 @@ class ConnectorTests(unittest.TestCase):
         self.assertNotIn(connectors.CALENDAR_ID, policy)
 
     @patch.dict(os.environ, {'LLM_PROVIDER': 'codex'})
-    def test_manager_and_outreach_use_connectors(self):
-        for toolset, schema, calendar in ((manager.MANAGER_TOOLS, manager.SCHEMA, True),
-                                          (outreach.TOOLS, outreach.SCHEMA, False)):
+    def test_outreach_uses_connectors(self):
+        for toolset, schema, calendar in ((outreach.TOOLS, outreach.SCHEMA, False),):
             with patch.object(llm, 'ask_codex', return_value={'report_md': 'ok'}) as ask:
-                self.assertEqual(manager.agent('prompt', toolset, schema), {'report_md': 'ok'})
+                self.assertEqual(tool_agent.agent('prompt', toolset, schema), {'report_md': 'ok'})
                 self.assertTrue(ask.call_args.kwargs['connectors'])
                 self.assertEqual(ask.call_args.kwargs['calendar'], calendar)
 

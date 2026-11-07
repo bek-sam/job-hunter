@@ -10,7 +10,7 @@ import applicant as P
 import argparse, csv, datetime as dt, json, re, sys
 from zoneinfo import ZoneInfo
 import config, funnel
-from manager import agent, prompt_for, size_line, match_row, GMAIL
+from tool_agent import agent, prompt_for, size_line, match_row, GMAIL
 
 CT = config.TZ   # local time zone (JOBHUNTER_TZ, default America/Chicago)
 OUT = config.DATA / 'outreach'

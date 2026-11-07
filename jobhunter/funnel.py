@@ -1,5 +1,5 @@
 """Deterministic job-search funnel from Notion "Applications 2026" (0 LLM tokens).
-Shared by manager.py and outreach.py.
+Used by outreach.py.
 
   python funnel.py                         # print compact funnel JSON (needs NOTION_TOKEN)
   python funnel.py --fixture data/test/funnel_fixture.json   # print a saved funnel (testing)

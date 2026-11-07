@@ -213,8 +213,8 @@ def fetch_verification(site_hint, since_epoch, timeout_s=150):
 def _gmail_ask(prompt):
     """Read-only Gmail lookup through the Manager's tool-restricted claude -p wrapper (connectors load via ToolSearch;
     send/reply/forward/trash/drafts are denied)."""
-    import manager
-    return manager.agent(prompt, _GMAIL_TOOLS + ['ToolSearch'], dict(_VERIFY_SCHEMA, title='verify'), model='haiku',
+    import tool_agent
+    return tool_agent.agent(prompt, _GMAIL_TOOLS + ['ToolSearch'], dict(_VERIFY_SCHEMA, title='verify'), model='haiku',
                          budget_usd=0.08, timeout=240,
                          system='You look up one verification email, read-only. Load Gmail tools with ToolSearch '
                                 '(select:<names>). Never send, reply, draft or delete. Finish with only the JSON object.')

@@ -51,5 +51,7 @@ Notion page for review.
 
 ## 6. What not to do
 - No invented employers, titles, dates, degrees, metrics, users or deployments.
-- No skills section padded with tools never used (`skills.unproven_max` stays 0).
+- Skills (Oct 31 2026 rule): EVERY skill the job description names goes on the resume (`SKILLS_MODE=all`,
+  `SKILLS_UNPROVEN_MAX=-1`); then each Skills line is filled to full width with his other skills
+  (`gen_v6.fill_pool`: base list -> score.EVIDENCE -> known Notion tech). Bullets still never claim a tool he didn't use.
 - No two-column layouts, tables, text boxes or header/footer contact info.

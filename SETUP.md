@@ -127,8 +127,8 @@ Sign-in / account creation / submit are separate `.env` switches (`AUTO_LOGIN`, 
 enters ID or payment numbers, and cancels any application that asks for a government ID. **You are responsible for what
 gets submitted and for each site's terms of use** — start with switches off and watch it.
 
-**Manager + recruiter outreach (`manager.py`, `outreach.py`)** — an AI coach that reads your Gmail for application
-updates and drafts (never sends) recruiter emails. Needs the Claude CLI with the Gmail and Google Calendar connectors
+**Recruiter outreach (`outreach.py`)** — finds public recruiter emails and drafts (never sends) recruiter emails and
+follow-ups. Needs the Claude CLI with the Gmail and Google Calendar connectors
 enabled on your claude.ai account. Schedule: `scripts/schedule.sh install-agents`. Costs roughly $1–3 per day of usage.
 
 **Community board** — set `NOTION_COMMUNITY_DS` to share found jobs (public info only) with friends in one Notion table.

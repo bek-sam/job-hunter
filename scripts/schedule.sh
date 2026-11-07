@@ -4,8 +4,8 @@
 #   scripts/schedule.sh install-hunter-15  # Fast Hunter every 15 min only
 #   scripts/schedule.sh install-awake      # keep the Mac from idle-sleeping (caffeinate)
 #   scripts/schedule.sh install    # old hourly setup: Fast Hunter at :24, Apply Prep at :40
-#   scripts/schedule.sh install-agents   # Manager 2:47 + 18:47, Recruiter Outreach 6:52 + 21:52 (CT)
-#        -> only after the cloud Manager / Outreach tasks are paused, or drafts get duplicated
+#   scripts/schedule.sh install-agents   # Recruiter Outreach 6:52 + 21:52 (CT)
+#        -> only after the cloud Outreach task is paused, or drafts get duplicated
 #   scripts/schedule.sh uninstall
 #   scripts/schedule.sh status
 # :24/:40 interleave with the cloud tasks (:54/:57) while both run; once the cloud ones are paused
@@ -92,9 +92,8 @@ PLIST
     echo "installed: Fast Hunter every 5 min (:00 :05 ...), Apply Prep every 5 min (:02 :07 ...)";;
   install-agents)
     mkdir -p $LA
-    plist2 com.jobhunter.manager manager "2:47 18:47"
     plist2 com.jobhunter.outreach outreach "6:52 21:52"
-    echo "installed: Manager 2:47/18:47, Outreach 6:52/21:52";;
+    echo "installed: Outreach 6:52/21:52";;
   install)
     mkdir -p $LA
     plist com.jobhunter.fasthunter fast_hunter $FH_MIN

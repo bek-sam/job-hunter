@@ -225,11 +225,11 @@ def company_recent(company, role=''):
 
 
 def lookup_confirmation(r, since=None, historical=False, fail_closed=False):
-    import auth, manager, confirmation
+    import auth, tool_agent, confirmation
     if not r.get('Position') and not confirmation.requisition(r.get('Link') or r.get('Apply Link')):
         return None
     try:
-        out = manager.agent(confirmation.prompt(r, since, historical), auth._GMAIL_TOOLS + ['ToolSearch'],
+        out = tool_agent.agent(confirmation.prompt(r, since, historical), auth._GMAIL_TOOLS + ['ToolSearch'],
                             dict(confirmation.SCHEMA, title='confirm'), model='haiku', budget_usd=0.06, timeout=180,
                             system='Read-only Gmail lookup. Never send, draft, delete or change anything. JSON only.')
         if confirmation.matched(out, r, since):
