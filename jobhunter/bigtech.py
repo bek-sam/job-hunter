@@ -127,6 +127,93 @@ def tiktok(cut):
                 yield 'TikTok', j['title'], loc, f"https://lifeattiktok.com/search/{j['id']}", t, True
         if len(lst) < 100 or off + 100 >= ((d.get('data') or {}).get('count') or 0): break
 
+# ---------------- iCIMS Jibe career sites (Nov 7, top-companies list) ----------------
+# careers.<co>.com/careers-home/jobs is backed by /api/jobs, sorted by posting date, newest first.
+JIBE = [('AMD', 'careers.amd.com')]
+
+def jibe(co, host, cut):
+    for page in range(1, 11):
+        d = json.loads(get(f'https://{host}/api/jobs?' + urllib.parse.urlencode(
+            {'page': page, 'sortBy': 'posted_date', 'descending': 'true', 'internal': 'false'})))
+        jobs = d.get('jobs') or []
+        for j in jobs:
+            x = j.get('data') or {}
+            t = hunt.iso((x.get('posted_date') or '').replace('+0000', '+00:00'))
+            if t < cut: return
+            loc = x.get('location_name') or ', '.join(filter(None, [x.get('city'), x.get('state'), x.get('country')]))
+            if x.get('country') and x['country'] != 'United States': continue
+            yield co, x.get('title', ''), loc, f"https://{host}/careers-home/jobs/{x.get('req_id') or x.get('slug')}", t, t % 3600 != 0
+        if not jobs: return
+
+# ---------------- Phenom career sites (Nov 7, top-companies list): POST /widgets ddoKey=refineSearch ----------------
+PHENOM = [('Yelp', 'www.yelp.careers', 'us', 'en_us')]
+
+def phenom(co, host, country, lang, cut):
+    for off in range(0, 1000, 100):
+        d = json.loads(get(f'https://{host}/widgets', {'lang': lang, 'deviceType': 'desktop', 'country': country,
+            'pageName': 'search-results', 'ddoKey': 'refineSearch', 'sortBy': 'Most recent', 'from': off, 'size': 100,
+            'jobs': True, 'counts': True, 'all_fields': ['category'], 'keywords': '', 'global': True}))
+        r = (d.get('refineSearch') or {}); jobs = (r.get('data') or {}).get('jobs') or []
+        for j in jobs:
+            t = hunt.iso((j.get('dateCreated') or j.get('postedDate') or '').replace('+0000', '+00:00'))
+            if t >= cut:
+                yield co, j.get('title', ''), j.get('cityStateCountry') or j.get('location') or '', \
+                      j.get('applyUrl') or f"https://{host}/{country}/en/job/{j.get('jobId')}", t, bool(j.get('dateCreated'))
+        if off + 100 >= (r.get('totalHits') or 0): return
+
+# ---------------- sources with no posting date: report an id the first time we see it (Nov 7) ----------------
+# The first ever scan only records what is already posted (no backlog flood); later scans yield ids not seen before,
+# with "now" as the post time (exact=False -> fast_hunter treats it like a date-only source).
+def _first_seen(name, ids):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'hunt', f'firstseen_{name}.json')
+    try: known = set(json.load(open(path)))
+    except Exception: known = None
+    ids = list(dict.fromkeys(ids))
+    new = [] if known is None else [i for i in ids if i not in known]
+    json.dump(sorted((known or set()) | set(ids))[-20000:], open(path, 'w'))
+    return set(new)
+
+# Radancy TalentBrew career sites (/search-jobs/results, newest first, no dates)
+TALENTBREW = [('Intuit', 'jobs.intuit.com'), ('Arm', 'careers.arm.com'), ('Synopsys', 'careers.synopsys.com')]
+
+def talentbrew(co, host, cut):
+    rows = []
+    for page in (1, 2, 3):
+        d = json.loads(get(f'https://{host}/search-jobs/results?' + urllib.parse.urlencode({
+            'ActiveFacetID': 0, 'CurrentPage': page, 'RecordsPerPage': 50, 'Distance': 50, 'SortCriteria': 1, 'SortDirection': 1,
+            'SearchResultsModuleName': 'Search Results', 'SearchFiltersModuleName': 'Search Filters'}),
+            headers={'X-Requested-With': 'XMLHttpRequest'}))
+        for href, inner in re.findall(r'<a[^>]+href="(/job/[^"]+)"[^>]*>(.*?)</a>', d.get('results') or '', re.S):
+            title = re.sub(r'<[^>]+>', '|', inner)
+            parts = [x.strip() for x in title.split('|') if x.strip()]
+            rows.append((href, parts[0] if parts else '', ', '.join(parts[1:]) or href.split('/')[2].replace('-', ' ')))
+    new = _first_seen('talentbrew_' + co, [h for h, _, _ in rows])
+    for href, title, loc in rows:
+        if href in new: yield co, title, loc, f'https://{host}{href}', time.time(), False
+
+# Atlassian (one JSON list of all jobs; only an "updated" date)
+def atlassian(cut):
+    jobs = json.loads(get('https://www.atlassian.com/endpoint/careers/listings'))
+    new = _first_seen('atlassian', [str(j['id']) for j in jobs])
+    for j in jobs:
+        if str(j['id']) in new:
+            yield 'Atlassian', j.get('title', ''), '; '.join(j.get('locations') or []), \
+                  (j.get('portalJobPost') or {}).get('portalUrl') or j.get('applyUrl') or '', time.time(), False
+
+# Rippling ATS boards (ats.rippling.com/<slug>): list has no dates, each job's detail has createdOn
+RIPPLING = [('Rippling', 'rippling')]
+
+def rippling(co, slug, cut):
+    jobs = json.loads(get(f'https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs'))
+    new = _first_seen('rippling_' + slug, [j['uuid'] for j in jobs])
+    for j in jobs:
+        if j['uuid'] not in new or not hunt.ROLE.search(j.get('name') or ''): continue
+        d = json.loads(get(f"https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs/{j['uuid']}"))
+        t = hunt.iso(d.get('createdOn') or '')
+        if t >= cut - DAY:
+            loc = '; '.join(w.get('label', '') for w in (d.get('workLocations') or [])) or (j.get('workLocation') or {}).get('label', '')
+            yield co, (j.get('name') or '').strip(), loc, j['url'], t, True
+
 # ---------------- Eightfold (pcsx / apply v2) ----------------
 EIGHTFOLD = [  # (company, host, domain, api)   api: pcsx = /api/pcsx/search, v2 = /api/apply/v2/jobs
     ('Microsoft', 'apply.careers.microsoft.com', 'microsoft.com', 'pcsx'),
@@ -135,6 +222,7 @@ EIGHTFOLD = [  # (company, host, domain, api)   api: pcsx = /api/pcsx/search, v2
     ('John Deere', 'careers.deere.com', 'johndeere.com', 'pcsx'), ('Morgan Stanley', 'morganstanley.eightfold.ai', 'morganstanley.com', 'pcsx'),
     ('Bayer', 'talent.bayer.com', 'bayer.com', 'v2'), ('PayPal', 'paypal.eightfold.ai', 'paypal.com', 'pcsx'),
     ('Ericsson', 'jobs.ericsson.com', 'ericsson.com', 'pcsx'), ('NetApp', 'netapp.eightfold.ai', 'netapp.com', 'v2'),
+    ('Millennium', 'mlp.eightfold.ai', 'mlp.com', 'v2'),   # Nov 7 (top-companies list)
     ('Lam Research', 'careers.lamresearch.com', 'lamresearch.com', 'pcsx')]
 
 def eightfold(co, host, dom, api, cut):
@@ -266,6 +354,11 @@ def sources(hours, no_li):
     s = {'amazon': amazon, 'google': google, 'apple': apple, 'ibm': ibm, 'goldman': goldman, 'tiktok': tiktok}
     for co, h, d, api in EIGHTFOLD: s['eightfold:' + co] = (lambda c, co=co, h=h, d=d, api=api: eightfold(co, h, d, api, c))
     for co, h, site in ORACLE: s['oracle:' + co] = (lambda c, co=co, h=h, site=site: oracle(co, h, site, c))
+    for co, h in JIBE: s['jibe:' + co] = (lambda c, co=co, h=h: jibe(co, h, c))
+    for co, h in TALENTBREW: s['talentbrew:' + co] = (lambda c, co=co, h=h: talentbrew(co, h, c))
+    for co, slug in RIPPLING: s['rippling:' + co] = (lambda c, co=co, slug=slug: rippling(co, slug, c))
+    s['atlassian'] = atlassian
+    for co, h, ctry, lang in PHENOM: s['phenom:' + co] = (lambda c, co=co, h=h, ctry=ctry, lang=lang: phenom(co, h, ctry, lang, c))
     names = {(b[1], b[2], b[3]): b[0] for b in BIG_WD}
     for co, ten, wdn, site in BIG_WD:
         s['workday:' + co] = (lambda c, b=('workday', ten, wdn, site), co=co: ((co,) + r[1:] for r in board_jobs(b, c, hours)))

@@ -52,7 +52,7 @@ US = re.compile(r'(united states|\busa\b|\bu\.s\.|\bus\b|remote|anywhere|, ?(al|
 
 # Oct 14: 48 parallel requests made Workday answer HTTP 429 for ~330 boards every run (and intern_hunt.py doubled it).
 # Now: at most WD_PER_HOST requests at a time per Workday server (wd1, wd5, ...) and retries with backoff on 429 / 5xx.
-WD_PER_HOST = int(os.environ.get('WD_PER_HOST', '6'))
+WD_PER_HOST = int(os.environ.get('WD_PER_HOST', '4'))   # Nov 7: 6 -> 4 after the watchlist grew by ~260 Workday boards (88 x 429 per run)
 _host_locks, _hl = {}, threading.Lock()
 
 def _gate(url):
@@ -64,6 +64,7 @@ def get(url, data=None, timeout=20, tries=4):
     h = dict(UA)
     if data is not None: h['Content-Type'] = 'application/json'
     gate = _gate(url)
+    if gate: tries = max(tries, 6)   # Workday answers 429 in bursts: wait longer instead of giving up on the board
     for k in range(tries):
         req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None, headers=h)
         try:
@@ -76,7 +77,7 @@ def get(url, data=None, timeout=20, tries=4):
         except urllib.error.HTTPError as e:
             if e.code not in (429, 500, 502, 503, 504, 520) or k == tries - 1: raise
             ra = e.headers.get('Retry-After') if e.headers else None
-            time.sleep(min(float(ra), 20) if ra and ra.isdigit() else 2 ** k + random.random() * 2)
+            time.sleep(min(float(ra), 30) if ra and ra.isdigit() else min(2 ** k * 1.5, 30) + random.random() * 2)
         except (TimeoutError, urllib.error.URLError) as e:
             if k >= 1: raise
             time.sleep(1 + random.random())
@@ -152,7 +153,8 @@ def sr(slug, cut):
                   f"https://jobs.smartrecruiters.com/{slug}/{j['id']}", t
 
 def wd(tenant, wdn, site, cut, hours):
-    ok = ('Posted Today',) + (('Posted Yesterday',) if hours > 20 else ())
+    ok = ('Posted Today',) + (('Posted Yesterday',) if hours > 20 else ()) \
+         + tuple(f'Posted {n} Days Ago' for n in range(2, 8) if hours > 24 * n - 4)   # long catch-ups (Nov 7)
     base = f'https://{tenant}.{wdn}.myworkdayjobs.com'
     for off in range(0, 400, 20):     # default sort = newest first; stop at first older posting (big boards post 100+ a day)
         d = json.loads(get(f'{base}/wday/cxs/{tenant}/{site}/jobs', {'appliedFacets': {}, 'limit': 20, 'offset': off, 'searchText': ''}))

@@ -17,7 +17,8 @@ PY = sys.executable
 SOFFICE_DIR = '/Applications/LibreOffice.app/Contents/MacOS'
 os.environ['PATH'] = SOFFICE_DIR + os.pathsep + os.environ.get('PATH', '')
 # sources that give only a posting DATE ("Posted Today"), never a time, on the list and on the job page
-DATE_ONLY_SRC = {'workday', 'oracle', 'amazon', 'ibm', 'speedyapply', 'jobright'}
+DATE_ONLY_SRC = {'workday', 'oracle', 'amazon', 'ibm', 'speedyapply', 'jobright',
+                 'indeed', 'zip_recruiter', 'google', 'talentbrew', 'atlassian'}   # JobSpy (Nov 7): date only + redirect links with no post time -> were stuck in 'retry'
 LAST_OK_JSON = config.DATA / 'hunt' / 'last_ok.json'   # per hunter script: start of its last successful scan
 LAST_OK = config.DATA / 'hunt' / 'last_ok'   # (old single value, read once for migration) start time of the last successful scan (catch-up + first-sighting continuity)
 EXACT_SRC = {'greenhouse', 'ashby', 'lever', 'smartrecruiters', 'simplify', 'simplify-intern', 'amazon', 'google',
@@ -36,7 +37,7 @@ def load_last_ok():
     except Exception: old = None
     try: d = {k: dt.datetime.fromisoformat(v) for k, v in json.loads(LAST_OK_JSON.read_text()).items()}
     except Exception: d = {}
-    return {s: d.get(s, old) for s in SCRIPTS}
+    return {s: d.get(s, old) for s in SCRIPTS + ('jobspy',)}
 
 
 def save_last_ok(per_script, t0):
@@ -49,11 +50,16 @@ def save_last_ok(per_script, t0):
 
 
 SCRIPTS = ('hunt', 'intern', 'bigtech')
+# A few dead/blocked boards (403s, a 404 board) are normal on every scan. Nov 7: treating ANY failure as "incomplete"
+# froze last_ok for hunt + bigtech at Nov 4 22:30, so every run was a 24-h catch-up (~50 min, lock skips).
+# Coverage counts as complete while failures stay within this share of the sources (min 10).
+HEALTH_TOLERANCE = float(os.environ.get('HEALTH_TOLERANCE', '0.01'))
 
 
 def run_hunters(hours):
     """hours = {script: look-back hours} (or one number for all)."""
     if not isinstance(hours, dict): hours = {s: hours for s in SCRIPTS}
+    hours.setdefault('jobspy', max(hours.values()))   # Nov 7: jobspy had no window key -> KeyError, 0 rows every run
     out = config.DATA / 'hunt'; out.mkdir(exist_ok=True)
     jobs = {'hunt': ['hunt.py', '--out', str(out / 'new_roles.json')],
             'intern': ['intern_hunt.py', '--out', str(out / 'new_interns.json')],
@@ -69,8 +75,12 @@ def run_hunters(hours):
             health = source_health.read(args[2])
             code = r.returncode
             if health and not health['complete']:
-                print(f'{name}: partial coverage; {len(health["failures"])} source failures (details in {args[2]}.health.json)', flush=True)
-                code = code or 3
+                nfail = len(health['failures'])
+                total = health.get('boards') or health.get('sources') or 0
+                ok = nfail <= max(10, HEALTH_TOLERANCE * total) and total > 0
+                print(f'{name}: partial coverage; {nfail} of {total or "?"} sources failed (details in {args[2]}.health.json)'
+                      + (' -> within tolerance, scan counts as complete' if ok else ''), flush=True)
+                if not ok: code = code or 3
             return name, json.load(open(args[2])), code
         except Exception as e:
             return name, [], f'failed: {e}'
@@ -100,6 +110,15 @@ def minutes_ago(label):
     m = re.search(r'(\d+)\s*(minute|min|hour)', label or '', re.I)
     if not m: return None
     return int(m.group(1)) * (60 if m.group(2).lower().startswith('hour') else 1)
+
+
+def label_days(label):
+    """Age in whole days of a date-only label: today 0, yesterday 1, 'N days ago' N; None when unknown or weeks+."""
+    l = (label or '').lower()
+    if re.search(r'today|just (now|posted)|moments? ago|seconds? ago|\bnew\b', l): return 0
+    if 'yesterday' in l: return 1
+    m = re.search(r'(\d+)\+?\s*days?', l)
+    return int(m.group(1)) if m and '+' not in l else None
 
 
 def label_kind(label):
@@ -182,7 +201,8 @@ def main():
         a.dry_run = True
     base_min = max(a.minutes, config.FRESH_MIN)   # how old a posting may be when we first see it (search-index lag)
     recovery = config.DATA / 'recovery_since.txt'   # an unfinished catch-up keeps its original start until it is done
-    if recovery.exists():
+    in_recovery = recovery.exists()
+    if in_recovery:
         recovery_since = dt.datetime.fromisoformat(recovery.read_text().strip())
         base_min = max(base_min, int((dt.datetime.now(dt.timezone.utc) - recovery_since).total_seconds() / 60) + 10)
     t0 = dt.datetime.now(dt.timezone.utc)
@@ -201,6 +221,8 @@ def main():
         cont[s] = bool(lo and (t0 - lo <= dt.timedelta(minutes=40) or cu))
         if cu: print(f'CATCH-UP {s}: last successful scan {gap:.0f} min ago -> window {win[s]} min')
     win['hunt'] = win['intern'] = max(win['hunt'], win['intern'])
+    lo = last.get('jobspy')   # JobSpy (Indeed): same continuity rule; it has no window of its own (uses the widest)
+    cont['jobspy'] = bool(lo and t0 - lo <= dt.timedelta(minutes=40))
     fresh_min = max(win.values())   # widest window (summary + legacy uses)
     fmin = lambda r: win.get(r.get('script'), fresh_min)
     cutf = lambda r: t0 - dt.timedelta(minutes=fmin(r))
@@ -262,6 +284,12 @@ def main():
         if not ok and cont.get(r.get('script')) and r.get('source') in DATE_ONLY_SRC and not j.get('exact') and lk in (None, 'today') \
                 and r.get('posted_utc') and utc(r['posted_utc']) >= t0 - dt.timedelta(hours=26):
             ok = True; r['first_seen'] = True   # date-only source, new since the last continuous scan
+        if not ok and in_recovery and r.get('source') in DATE_ONLY_SRC and not j.get('exact'):
+            # recovery back to recovery_since.txt (Nov 7): a date-only label ("Posted Yesterday" / "Posted 3 Days Ago")
+            # counts when that date is inside the recovery window
+            days = label_days(j.get('posted_label'))
+            if days is not None and t0 - dt.timedelta(days=days) >= cutf(r):
+                ok = True; r['first_seen'] = True
         if ok: fresh.append((r, j))
         else:
             known = j.get('exact') or lk in ('minutes', 'old')   # age known -> too old for good; unknown / 'today' -> retry
