@@ -290,7 +290,7 @@ BIG_ATS = [('greenhouse', s) for s in (
     'stripe airbnb pinterest coinbase reddit robinhood datadog cloudflare figma discord roblox instacart lyft dropbox twilio okta '
     'mongodb elastic gitlab affirm brex chime sofi samsara anthropic databricks scaleai asana airtable duolingo squarespace toast '
     'block waymo spacex verkada faire gusto flexport nuro andurilindustries jumptrading imc point72 virtu akunacapital '
-    'oldmissioncapital janestreet vercel mercury carta webflow intercom zscaler sentinellabs tanium qualtrics nextdoor peloton '
+    'janestreet vercel mercury carta webflow intercom zscaler sentinellabs tanium qualtrics nextdoor peloton '
     'calendly lattice gemini doximity oscar sambanovasystems togetherai xai watershed applovin epicgames riotgames twitch mozilla '
     'wikimedia khanacademy coursera').split()] + \
     [('ashby', s) for s in ('openai notion ramp plaid snowflake linear vanta cursor perplexity elevenlabs cohere sierra decagon harvey '
