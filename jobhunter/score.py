@@ -22,16 +22,33 @@ BLOCK = [  # never written to Notion (Oct 4 2026 rule) -> just counted
 STAFFING = re.compile(r'taskverse|cybercoders|jobot|dice\b|robert half|insight global|teksystems|staffing|talent ?pluto|recruit(ing|ers) (llc|inc)|hirequest|actalent|revature|synergisticit|executiveplacements|placements?\b|afterquery|\bexperts$|beaconfire|smartiplace|ampcus|apex systems|kforce|randstad|adecco|aerotek|hays\b|motion recruitment|crossover|outlier|mercor|data ?annotation|turing\b|braintrust|talent ?hop|remote ?hunter|jobgether|haystack|portfolio ?future|the ?ladders|kansasworks|jooble|lensa|jobs ?via|hiring ?cafe|v-?soft|staff ?xpert|selby jennings|harnham|oscar technology|jefferson frank|nigel frank|torentify|peterson technology|rangam|inceed|biospace\b', re.I)  # Oct 13: aggregator reposts close within hours / AI-apply walls
 
 ROLE35 = re.compile(r'full[ -]?stack|back[ -]?end|backend|\bai\b|machine learning|\bml\b|genai|generative|\bllm|ios|mobile|android|front[ -]?end|frontend|\bweb\b|software (engineer|developer|development engineer)|\bswe\b|forward deployed|product engineer|application (engineer|developer)', re.I)
-ROLE25 = re.compile(r'data engineer|cloud|platform|devops|\bsre\b|site reliability|infrastructure', re.I)
-ROLE10 = re.compile(r'\bqa\b|quality|test|sdet|embedded|firmware|it |programmer analyst|systems analyst', re.I)
+# Nov 9 2026 (owner): every title a CS student can work counts as on-target -> ROLE25 covers the non-SWE CS roles
+ROLE25 = re.compile(r'data (engineer|scien|analy)|analytics engineer|cloud|platform|devops|\bsre\b|site reliability|infrastructure|'
+                    r'security|cyber|network|systems? (engineer|analyst|administrator)|database|\bdba\b|solutions? engineer|'
+                    r'sales engineer|support engineer|applications? engineer|implementation|integration|automation|'
+                    r'research engineer|computer vision|robotic|game|graphics|quant|\bqa\b|sdet|in test\b|test (engineer|automation)|'
+                    r'quality engineer|embedded|firmware|\bit\b|programmer|technical|product manager', re.I)
+ROLE10 = re.compile(r'quality|test', re.I)
 # Oct 28 review: 175 of 1,112 submissions were outside SWE / full-stack / mobile / AI (Field Application Engineer, Data
 # Center, Security/DLP, Robotics, quant C++, SDET, embedded...) and got auto-rejected in 1-3 days -> config.TITLE_STRICT
+# Nov 9 2026 (owner): widened to every title a CS student can work (data, cloud/devops/SRE, security, QA, embedded, IT,
+# systems/network/database, solutions/sales/support engineering, research, game/graphics, quant, technical PM ...).
+# Previous lists kept in git history (Oct 28 version).
 CORE_TITLE = re.compile(r'software|developer|\bswe\b|\bsde\b|full[ -]?stack|back[ -]?end|front[ -]?end|\bweb\b|\bios\b|mobile|'
-                        r'android|\bai\b|machine learning|\bml\b|genai|generative|\bllm|forward deployed|product engineer', re.I)
-OFF_TITLE = re.compile(r'field|applications? engineer|security|\bdlp\b|robotic|research|quant|c\+\+|embedded|firmware|hardware|'
-                       r'in test\b|\bsdet\b|\bqa\b|test (engineer|automation)|data ?cent(er|re)|game|graphics|\b3d\b|solutions? engineer|'
-                       r'support|mainframe|\bsap\b|servicenow|salesforce|blockchain|crypto|perception|autonomy|vision|audio|'
-                       r'\bcontract(or)?\b|\bcnc\b|data engineer|devops|site reliability|\bsre\b|infrastructure', re.I)
+                        r'android|\bai\b|machine learning|\bml\b|genai|generative|\bllm|forward deployed|product engineer|'
+                        r'programmer|coder|computer science|data (engineer|scien|analy)|analytics engineer|big data|\betl\b|'
+                        r'cloud|devops|dev ?sec ?ops|\bsre\b|site reliability|platform|infrastructure|\bmlops\b|'
+                        r'security (engineer|analyst|developer)|cyber ?security|\bsoc\b|penetration|\bappsec\b|'
+                        r'\bqa\b|quality (assurance|engineer)|\bsdet\b|in test\b|test (engineer|automation)|automation engineer|'
+                        r'embedded|firmware|systems? (engineer|analyst|administrator|developer)|network (engineer|administrator|analyst)|'
+                        r'database|\bdba\b|\bit\b (support|specialist|analyst|engineer|technician)|help ?desk|technical support|'
+                        r'support engineer|solutions? (engineer|architect)|sales engineer|applications? (engineer|developer)|'
+                        r'implementation (engineer|consultant|specialist)|integration (engineer|developer)|technical consultant|'
+                        r'research (engineer|scientist)|computer vision|\bnlp\b|robotics software|game (developer|programmer|engineer)|'
+                        r'graphics (engineer|programmer)|quant(itative)? (developer|engineer|analyst)|blockchain|smart contract|'
+                        r'salesforce|servicenow|\bsap\b|mainframe|technical (program|product) manager|associate product manager|'
+                        r'product manager|technology analyst|technical analyst|\bui\b|\bux\b engineer|ar/vr|\bxr\b', re.I)
+OFF_TITLE = re.compile(r'\bcontract(or)?\b|\bcnc\b|field service', re.I)
 ENTRY = re.compile(r'new grad|new college|entry|early career|university|graduate|campus|\b2027\b|\bassociate\b|engineer i\b|\bi\b$|\b(engineer|developer) 1\b|junior|jr\.?\b|intern|co-?op', re.I)
 NON_SWE = re.compile(r'analyst|analytics|pricing|business|sales|marketing|finance|accounting|operations|recruit|\bhr\b|designer|product manager|consultant', re.I)
 TXREMOTE = re.compile(P.get('identity', 'preferred_locations_rx') or r'remote', re.I)   # your preferred locations
@@ -118,7 +135,8 @@ def prescore(role, jd_text):
     title = role['title']; text = jd_text or ''
     role_pts = 35 if ROLE35.search(title) else 25 if ROLE25.search(title) else 10 if ROLE10.search(title) else 18
     if ROLE10.search(title) and not re.search(r'full|back|front|ai|ml', title, re.I): role_pts = 10
-    if NON_SWE.search(title) and not re.search(r'engineer|developer|programmer|swe\b', title, re.I): role_pts = 0
+    if NON_SWE.search(title) and not re.search(r'engineer|developer|programmer|swe\b|data|systems?|security|cyber|\bit\b|'
+                                               r'technical|technology|network|database|quant|product manager', title, re.I): role_pts = 0
     stretch = False
     if ENTRY.search(title) or role.get('kind') == 'intern' or re.search(r'new grad|new college grad|recent graduate|entry[- ]level|class of 202[67]', text, re.I):
         level = 25
