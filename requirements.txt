@@ -2,7 +2,7 @@
 # Dependabot (weekly) opens a PR for each new version; test it (test_resumes.py, apply_prep --dry) before merging.
 certifi==2026.10.23
 python-docx==1.2.0
-pikepdf==10.17.0
+pikepdf==10.18.0
 # pypdf: older versions have known vulnerabilities (49 Dependabot alerts); 7.x is a major release, not yet tested here
 pypdf==6.21.4
 playwright==1.63.0   # the installed, tested version; bump with the Dependabot PR after apply_prep --dry
